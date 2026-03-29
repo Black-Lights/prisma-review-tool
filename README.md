@@ -164,19 +164,19 @@ Only [2% of systematic review tools](https://doi.org/10.1016/j.jclinepi.2021.10.
 
 **Quick start:** See [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
-**Full documentation:** See the [Wiki](../../wiki) for comprehensive guides:
+**Full documentation:** See the [Wiki](https://github.com/Black-Lights/prisma-review-tool/wiki) or browse the [`wiki/`](wiki/) folder:
 
 | Guide | Description |
 |-------|-------------|
-| [Installation & Setup](../../wiki/Installation-&-Setup) | Python setup, dependencies, first run |
-| [Configuration Guide](../../wiki/Configuration-Guide) | How to write config.yaml for any topic |
-| [Full Workflow Tutorial](../../wiki/Full-Workflow-Tutorial) | End-to-end walkthrough |
-| [MCP & AI Screening](../../wiki/MCP-&-AI-Screening) | Setup with any MCP agent |
-| [CLI Reference](../../wiki/CLI-Reference) | All commands and options |
-| [MCP Tools API Reference](../../wiki/MCP-Tools-API-Reference) | All 10 MCP tools with params and responses |
-| [PRISMA 2020 Compliance](../../wiki/PRISMA-2020-Compliance) | Checklist mapping, flow diagram alignment |
-| [Writing Your Methodology](../../wiki/Writing-Your-Methodology) | Template for thesis/paper methods section |
-| [Troubleshooting & FAQ](../../wiki/Troubleshooting-&-FAQ) | Common issues and solutions |
+| [Installation & Setup](wiki/Installation-&-Setup) | Python setup, dependencies, first run |
+| [Configuration Guide](wiki/Configuration-Guide) | How to write config.yaml for any topic |
+| [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial) | End-to-end walkthrough |
+| [MCP & AI Screening](wiki/MCP-&-AI-Screening) | Setup with any MCP agent |
+| [CLI Reference](wiki/CLI-Reference) | All commands and options |
+| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference) | All 10 MCP tools with params and responses |
+| [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance) | Checklist mapping, flow diagram alignment |
+| [Writing Your Methodology](wiki/Writing-Your-Methodology) | Template for thesis/paper methods section |
+| [Troubleshooting & FAQ](wiki/Troubleshooting-&-FAQ) | Common issues and solutions |
 
 Also available in `docs/`:
 - [MCP Setup Guide](docs/MCP_SETUP.md) — Quick MCP setup reference
