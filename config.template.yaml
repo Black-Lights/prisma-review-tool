@@ -1,0 +1,78 @@
+# ============================================================
+# PRISMA Review Tool — Configuration Template
+# ============================================================
+# Copy this file to config.yaml and fill in your details:
+#   cp config.template.yaml config.yaml
+#
+# STEP 1: Name your project
+# STEP 2: Add API keys (optional — arXiv, OpenAlex, Semantic Scholar are free)
+# STEP 3: Define your search queries (use Boolean AND/OR operators)
+# STEP 4: Set your inclusion/exclusion keywords for screening
+# ============================================================
+
+project:
+  name: "Your Review Title Here"    # e.g., "AI in Healthcare Systematic Review"
+  output_dir: "./prisma_output"     # Where results are saved
+
+# --- API Keys (all optional) ---
+api_keys:
+  scopus: ""              # Get from https://dev.elsevier.com (needs institutional access)
+  openalex_email: ""      # Your email for faster OpenAlex responses (free, recommended)
+
+# --- Search Configuration ---
+search:
+  date_range:
+    start: "2015-01-01"   # Adjust to your review's time scope
+    end: "2026-12-31"     # Today's date or your cutoff
+
+  max_results_per_query: 500  # Max papers per query per source (safety cap)
+
+  # Which databases to search (comment out to disable)
+  sources:
+    - arxiv               # Free, no key needed, great for CS/ML/Physics
+    - openalex            # Free, 250M+ papers, broad coverage
+    - semantic_scholar    # Free, good for CS papers
+    # - scopus            # Needs API key, best metadata quality
+
+  # Search queries — use Boolean operators: AND, OR
+  # Wrap phrases in quotes: "machine learning"
+  # Group with parentheses: ("term A" OR "term B") AND "term C"
+  queries:
+    - name: "main_query"
+      terms: >
+        ("your key phrase 1" OR "your key phrase 2")
+        AND ("method or context")
+
+    - name: "secondary_query"
+      terms: >
+        ("another topic")
+        AND ("relevant method" OR "relevant tool")
+        AND ("domain or application")
+
+# --- Deduplication Settings ---
+dedup:
+  doi_match: true                 # Primary: exact DOI match
+  fuzzy_title_threshold: 90       # Secondary: fuzzy title similarity (0-100, higher = stricter)
+
+# --- Screening Rules ---
+# Papers are classified as:
+#   INCLUDE: >= min_include_hits keywords AND 0 exclude keywords
+#   EXCLUDE: any exclude keyword matched
+#   MAYBE: insufficient include keywords (needs manual/AI review)
+screening:
+  rules:
+    include_keywords:             # Papers should contain at least min_include_hits of these
+      - keyword 1
+      - keyword 2
+      - keyword 3
+    exclude_keywords:             # Papers matching ANY of these are auto-excluded
+      - irrelevant topic 1
+      - irrelevant topic 2
+    min_include_hits: 2           # How many include keywords must match
+
+# --- Eligibility Screening (Second Pass) ---
+# When first-pass screening yields too many papers, use the MCP tools
+# for a stricter AI-assisted eligibility review. This narrows included
+# papers to only the most relevant studies for full-text review.
+# No config needed here — eligibility screening is done interactively
+# via Claude Code's MCP integration. See docs/MCP_SETUP.md for details.

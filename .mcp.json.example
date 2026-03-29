@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "prisma-review": {
+      "command": "<path-to-prisma_tool>/.venv/bin/python",
+      "args": ["run_mcp.py"],
+      "cwd": "<path-to-prisma_tool>"
+    }
+  }
+}

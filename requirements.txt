@@ -1,0 +1,17 @@
+# Database search
+arxiv>=2.1.0
+requests>=2.31.0
+pyalex>=0.15
+
+# Data processing
+pandas>=2.0.0
+pyyaml>=6.0
+
+# Deduplication
+rapidfuzz>=3.0.0
+
+# Diagram
+matplotlib>=3.7.0
+
+# MCP Server
+mcp>=1.0.0

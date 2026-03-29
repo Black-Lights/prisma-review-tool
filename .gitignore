@@ -1,0 +1,8 @@
+.venv/
+prisma_output/
+config.yaml
+.mcp.json
+__pycache__/
+*.pyc
+*.egg-info/
+server_err.txt
