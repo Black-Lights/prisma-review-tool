@@ -19,6 +19,7 @@ from prisma_review.config import Config
 from prisma_review.models import Paper, save_papers, load_papers
 from prisma_review.screen import get_by_decision
 from prisma_review.export import export_bibtex, export_csv
+from prisma_review.download import download_papers
 from prisma_review.diagram import (
     generate_markdown_diagram, generate_png_diagram,
     load_state, save_state,
@@ -490,6 +491,34 @@ def generate_report() -> str:
         "eligible_papers": len(eligible),
         "outputs": outputs,
         "flow_summary": state,
+    }, indent=2)
+
+
+@mcp.tool()
+def download_eligible_papers() -> str:
+    """Download open access PDFs for eligible papers. Only downloads legally available open access papers (arXiv, Unpaywall, Semantic Scholar)."""
+    config = _get_config()
+
+    papers = load_papers(config.eligibility_dir / "eligible_included.json")
+    source = "eligible"
+    if not papers:
+        papers = load_papers(config.screen_dir / "included.json")
+        source = "included"
+
+    if not papers:
+        return json.dumps({"error": "No papers found. Run screening first."})
+
+    pdf_dir = config.output_dir / "05_pdfs"
+    stats = download_papers(papers, pdf_dir, email=config.openalex_email)
+
+    return json.dumps({
+        "status": "ok",
+        "source": source,
+        "total": stats["total"],
+        "downloaded": stats["downloaded"],
+        "no_open_access": stats["no_open_access"],
+        "failed": stats["failed"],
+        "output_dir": str(pdf_dir),
     }, indent=2)
 
 

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-03-29
+
+### Added
+- **PDF download feature**: New `download` CLI command and `download_eligible_papers` MCP tool
+  - Downloads open access papers only (legal: arXiv, Unpaywall API, Semantic Scholar)
+  - Descriptive filenames: `AuthorYear_ShortTitle.pdf`
+  - Download log saved as `_download_log.json`
+  - Papers without open access are skipped and logged as "manual download needed"
+- `05_pdfs/` output directory for downloaded papers
+- `download.py` module with multi-source OA resolution
+
+### Changed
+- Updated README with download feature, new CLI command, new MCP tool
+- Updated CHANGELOG format
+
 ## [1.0.1] - 2026-03-29
 
 ### Added

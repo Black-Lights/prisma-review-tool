@@ -13,6 +13,7 @@ from .search.runner import run_all_searches
 from .dedup import deduplicate, save_dedup_log
 from .screen import screen_by_rules, get_by_decision
 from .export import export_bibtex, export_csv
+from .download import download_papers
 from .diagram import generate_markdown_diagram, generate_png_diagram, save_state, load_state
 
 
@@ -141,6 +142,42 @@ def cmd_export(config: Config) -> None:
         print(f"  CSV: {config.export_dir / 'eligible_papers.csv'}")
 
 
+def cmd_download(config: Config) -> None:
+    """Download open access PDFs for eligible papers."""
+    # Prefer eligible papers, fall back to first-pass included
+    papers = load_papers(config.eligibility_dir / "eligible_included.json")
+    source = "eligible"
+    if not papers:
+        papers = load_papers(config.screen_dir / "included.json")
+        source = "included"
+
+    if not papers:
+        print("[DOWNLOAD] No papers found. Run screening first.")
+        return
+
+    pdf_dir = config.output_dir / "05_pdfs"
+    print(f"[DOWNLOAD] Downloading open access PDFs for {len(papers)} {source} papers...")
+    print(f"  Output: {pdf_dir}")
+    print(f"  Only open access papers will be downloaded (arXiv, Unpaywall, Semantic Scholar)")
+    print()
+
+    stats = download_papers(papers, pdf_dir, email=config.openalex_email)
+
+    print()
+    print(f"[DOWNLOAD] Done!")
+    print(f"  Downloaded: {stats['downloaded']}")
+    print(f"  No open access: {stats['no_open_access']}")
+    print(f"  Failed: {stats['failed']}")
+    print(f"  Saved to: {pdf_dir}")
+
+    # Save download log
+    import json
+    log_path = pdf_dir / "_download_log.json"
+    with open(log_path, "w", encoding="utf-8") as f:
+        json.dump(stats["results"], f, indent=2, ensure_ascii=False)
+    print(f"  Log: {log_path}")
+
+
 def cmd_status(config: Config) -> None:
     """Show current pipeline status."""
     state = load_state(config.state_file)
@@ -199,7 +236,7 @@ def main():
         prog="prisma-review",
         description="PRISMA Review Tool — Automated systematic literature review",
     )
-    parser.add_argument("command", choices=["search", "dedup", "screen-rules", "report", "export", "status", "run-all"],
+    parser.add_argument("command", choices=["search", "dedup", "screen-rules", "report", "export", "download", "status", "run-all"],
                         help="Command to run")
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: config.yaml)")
     parser.add_argument("--force", action="store_true", help="Re-run step even if output exists")
@@ -218,6 +255,7 @@ def main():
         "screen-rules": cmd_screen_rules,
         "report": cmd_report,
         "export": cmd_export,
+        "download": cmd_download,
         "status": cmd_status,
         "run-all": cmd_run_all,
     }

@@ -14,6 +14,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 - **AI screening via MCP**: Works with Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, Amazon Q, Gemini CLI, and any MCP-compatible agent
 - **PRISMA flow diagram**: Auto-generated PNG + Markdown with all the numbers
 - **Export**: BibTeX (.bib) for LaTeX/Zotero + CSV for Excel
+- **PDF download**: Automatically download open access papers (arXiv, Unpaywall, Semantic Scholar)
 
 ## Quick Start
 
@@ -87,6 +88,7 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | `screen-rules` | Apply keyword-based screening rules |
 | `report` | Generate PRISMA flow diagram (PNG + Markdown) |
 | `export` | Export included papers to .bib and .csv |
+| `download` | Download open access PDFs for eligible papers |
 | `status` | Show current pipeline state and counts |
 | `run-all` | Run the full pipeline end-to-end |
 
@@ -117,6 +119,7 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | Tool | Description |
 |------|-------------|
 | `generate_report` | Generate PRISMA diagram + export .bib/.csv |
+| `download_eligible_papers` | Download open access PDFs (arXiv, Unpaywall, S2) |
 
 ## Output Files
 
@@ -142,6 +145,9 @@ prisma_output/
 │   ├── included_papers.csv              # First-pass CSV
 │   ├── eligible_papers.bib              # Final BibTeX (after eligibility)
 │   └── eligible_papers.csv              # Final CSV (after eligibility)
+├── 05_pdfs/
+│   ├── Author2024_Paper_Title.pdf       # Downloaded open access PDFs
+│   └── _download_log.json              # Log of download results
 └── review_state.json                    # Pipeline state + counts
 ```
 
