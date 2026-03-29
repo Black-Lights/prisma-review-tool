@@ -1,21 +1,17 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  fetchPapersToScreen,
-  searchPapers,
-  type PaperListResponse,
-  type SearchResponse,
-} from "@/lib/api";
+import { fetchAllPapers, searchPapers } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import Link from "next/link";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const decisionColor: Record<string, string> = {
-  included: "bg-accent-green/15 text-accent-green",
-  excluded: "bg-accent-red/15 text-accent-red",
+  include: "bg-accent-green/15 text-accent-green",
+  exclude: "bg-accent-red/15 text-accent-red",
   maybe: "bg-accent-amber/15 text-accent-amber",
 };
 
@@ -26,22 +22,21 @@ const sourceColor: Record<string, string> = {
 };
 
 export default function PapersPage() {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchInput, setSearchInput] = useState("");
+  const [page, setPage] = useState(1);
+  const [perPage] = useState(25);
   const [decisionFilter, setDecisionFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Fetch all papers
-  const { data, isLoading, error } = useQuery<PaperListResponse>({
-    queryKey: ["all-papers"],
-    queryFn: () => fetchPapersToScreen(100, "all"),
+  // Paginated papers from API
+  const { data, isLoading } = useQuery({
+    queryKey: ["all-papers", page, perPage, decisionFilter, sourceFilter],
+    queryFn: () => fetchAllPapers(page, perPage, decisionFilter, sourceFilter),
   });
 
-  // Search query
-  const {
-    data: searchData,
-    isFetching: isSearching,
-  } = useQuery<SearchResponse>({
+  // Search
+  const { data: searchData, isFetching: isSearching } = useQuery({
     queryKey: ["search-papers", searchQuery],
     queryFn: () => searchPapers(searchQuery),
     enabled: searchQuery.length > 0,
@@ -52,43 +47,10 @@ export default function PapersPage() {
     setSearchQuery(searchInput.trim());
   };
 
-  // Determine which papers to show
-  const papers = useMemo(() => {
-    if (searchQuery && searchData) {
-      return searchData.papers.map((p) => ({
-        ...p,
-        authors: "",
-        source: p.source ?? "",
-        current_decision: p.decision,
-      }));
-    }
-    return data?.papers ?? [];
-  }, [searchQuery, searchData, data]);
-
-  // Client-side filtering
-  const filtered = useMemo(() => {
-    return papers.filter((p) => {
-      const decision = (
-        "current_decision" in p ? p.current_decision : null
-      ) as string | null;
-
-      if (
-        decisionFilter !== "all" &&
-        (decision ?? "").toLowerCase() !== decisionFilter
-      ) {
-        return false;
-      }
-      if (
-        sourceFilter !== "all" &&
-        (p.source ?? "").toLowerCase() !== sourceFilter
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [papers, decisionFilter, sourceFilter]);
-
-  const totalCount = data?.total_matching ?? 0;
+  const showSearch = searchQuery.length > 0 && searchData;
+  const papers = showSearch ? searchData.papers.map((p) => ({ ...p, authors: "", eligibility: null })) : (data?.papers ?? []);
+  const total = showSearch ? searchData.matches : (data?.total ?? 0);
+  const totalPages = data?.total_pages ?? 1;
 
   return (
     <div className="space-y-6">
@@ -96,7 +58,7 @@ export default function PapersPage() {
       <div className="flex items-center gap-4">
         <h1 className="text-2xl font-bold text-text-primary">All Papers</h1>
         <span className="inline-flex items-center rounded-full bg-primary/15 px-3 py-1 text-sm font-medium text-primary">
-          {totalCount} total
+          {total} {showSearch ? "matches" : "total"}
         </span>
       </div>
 
@@ -109,71 +71,49 @@ export default function PapersPage() {
           placeholder="Search papers by title, abstract, keywords..."
           className="glass-input flex-1"
         />
-        <button
-          type="submit"
-          className="rounded-lg bg-primary/15 px-5 py-2.5 text-sm font-medium text-primary hover:bg-primary/25 transition-colors"
-        >
+        <button type="submit" className="rounded-lg bg-primary/15 px-5 py-2.5 text-sm font-medium text-primary hover:bg-primary/25">
           Search
         </button>
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => { setSearchQuery(""); setSearchInput(""); }}
+            className="rounded-lg bg-accent-red/15 px-4 py-2.5 text-sm font-medium text-accent-red hover:bg-accent-red/25"
+          >
+            Clear
+          </button>
+        )}
       </form>
 
       {/* Filters + Export */}
       <div className="flex flex-wrap items-center gap-3">
-        <select
-          value={decisionFilter}
-          onChange={(e) => setDecisionFilter(e.target.value)}
-          className="glass-input text-sm"
-        >
+        <select value={decisionFilter} onChange={(e) => { setDecisionFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Decision: All</option>
-          <option value="included">Included</option>
-          <option value="excluded">Excluded</option>
+          <option value="include">Included</option>
+          <option value="exclude">Excluded</option>
           <option value="maybe">Maybe</option>
         </select>
-
-        <select
-          value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          className="glass-input text-sm"
-        >
+        <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Source: All</option>
           <option value="openalex">OpenAlex</option>
           <option value="arxiv">arXiv</option>
           <option value="semantic_scholar">Semantic Scholar</option>
         </select>
-
         <div className="ml-auto flex gap-2">
-          <a
-            href={`${API}/api/reports/export/csv`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-lg bg-accent-green/15 px-4 py-2 text-sm font-medium text-accent-green hover:bg-accent-green/25 transition-colors"
-          >
+          <a href={`${API}/api/reports/export/csv`} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-accent-green/15 px-4 py-2 text-sm font-medium text-accent-green hover:bg-accent-green/25">
             Export CSV
           </a>
-          <a
-            href={`${API}/api/reports/export/bib`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-lg bg-accent-purple/15 px-4 py-2 text-sm font-medium text-accent-purple hover:bg-accent-purple/25 transition-colors"
-          >
+          <a href={`${API}/api/reports/export/bib`} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-accent-purple/15 px-4 py-2 text-sm font-medium text-accent-purple hover:bg-accent-purple/25">
             Export BibTeX
           </a>
         </div>
       </div>
 
-      {/* Loading / Error */}
-      {(isLoading || isSearching) && (
-        <p className="text-text-muted text-sm animate-pulse">
-          Loading papers...
-        </p>
-      )}
-
-      {error && (
-        <p className="text-accent-red text-sm">Failed to load papers.</p>
-      )}
+      {/* Loading */}
+      {(isLoading || isSearching) && <p className="text-text-muted text-sm animate-pulse">Loading papers...</p>}
 
       {/* Table */}
-      {filtered.length > 0 && (
+      {papers.length > 0 && (
         <GlassCard className="overflow-x-auto !p-0">
           <table className="w-full text-sm">
             <thead>
@@ -186,73 +126,80 @@ export default function PapersPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((paper, i) => {
-                const decision = (
-                  "current_decision" in paper ? paper.current_decision : null
-                ) as string | null;
-                const authors =
-                  "authors" in paper
-                    ? (paper.authors as string)
-                    : "";
-
-                return (
-                  <tr
-                    key={paper.id}
-                    className={`border-b border-border-glass/50 hover:bg-bg-glass/40 ${
-                      i % 2 === 1 ? "bg-bg-glass/20" : ""
-                    }`}
-                  >
-                    <td className="px-5 py-3 max-w-md">
-                      <Link
-                        href={`/papers/${paper.id}`}
-                        className="text-primary hover:underline line-clamp-2"
-                      >
-                        {paper.title}
-                      </Link>
-                    </td>
-                    <td className="px-5 py-3 text-text-secondary max-w-[200px] truncate">
-                      {authors || "\u2014"}
-                    </td>
-                    <td className="px-5 py-3 text-text-secondary">
-                      {paper.year}
-                    </td>
-                    <td className="px-5 py-3">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          sourceColor[paper.source?.toLowerCase()] ??
-                          "bg-bg-glass text-text-muted"
-                        }`}
-                      >
-                        {paper.source}
+              {papers.map((paper, i) => (
+                <tr key={paper.id} className={`border-b border-border-glass/50 hover:bg-bg-glass/40 ${i % 2 === 1 ? "bg-bg-glass/20" : ""}`}>
+                  <td className="px-5 py-3 max-w-md">
+                    <Link href={`/papers/${paper.id}`} className="text-primary hover:underline line-clamp-2">
+                      {paper.title}
+                    </Link>
+                  </td>
+                  <td className="px-5 py-3 text-text-secondary max-w-[200px] truncate">
+                    {paper.authors || "\u2014"}
+                  </td>
+                  <td className="px-5 py-3 text-text-secondary">{paper.year}</td>
+                  <td className="px-5 py-3">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${sourceColor[paper.source?.toLowerCase()] ?? "bg-bg-glass text-text-muted"}`}>
+                      {paper.source}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3">
+                    {paper.decision ? (
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${decisionColor[paper.decision.toLowerCase()] ?? "bg-bg-glass text-text-muted"}`}>
+                        {paper.decision}
                       </span>
-                    </td>
-                    <td className="px-5 py-3">
-                      {decision ? (
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            decisionColor[decision.toLowerCase()] ??
-                            "bg-bg-glass text-text-muted"
-                          }`}
-                        >
-                          {decision}
-                        </span>
-                      ) : (
-                        <span className="text-text-muted">&mdash;</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
+                    ) : (
+                      <span className="text-text-muted">&mdash;</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </GlassCard>
       )}
 
-      {!isLoading && !isSearching && filtered.length === 0 && (
-        <div className="glass p-12 text-center">
-          <p className="text-text-secondary">
-            No papers match the current filters.
+      {/* Pagination */}
+      {!showSearch && totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-text-muted">
+            Page {page} of {totalPages} ({total} papers)
           </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="rounded-lg bg-bg-glass px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated disabled:opacity-30 border border-border-glass"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+              const start = Math.max(1, Math.min(page - 2, totalPages - 4));
+              const p = start + i;
+              if (p > totalPages) return null;
+              return (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`rounded-lg px-3 py-2 text-sm border border-border-glass ${p === page ? "bg-primary/15 text-primary" : "bg-bg-glass text-text-secondary hover:bg-bg-elevated"}`}
+                >
+                  {p}
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="rounded-lg bg-bg-glass px-3 py-2 text-sm text-text-secondary hover:bg-bg-elevated disabled:opacity-30 border border-border-glass"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!isLoading && !isSearching && papers.length === 0 && (
+        <div className="glass p-12 text-center">
+          <p className="text-text-secondary">No papers match the current filters.</p>
         </div>
       )}
     </div>

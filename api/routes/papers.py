@@ -31,6 +31,53 @@ def get_stats(config: Config = Depends(get_config)):
     }
 
 
+# ── Browse all papers (paginated) ─────────────────────────────────────────────
+
+@router.get("/papers")
+def list_all_papers(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    decision: str = Query("all"),
+    source: str = Query("all"),
+    config: Config = Depends(get_config),
+):
+    papers = load_papers(config.screen_dir / "screen_results.json")
+    if not papers:
+        papers = load_papers(config.dedup_dir / "deduplicated.json")
+
+    # Filter
+    if decision != "all":
+        papers = [p for p in papers if (p.screen_decision or "").lower() == decision.lower()]
+    if source != "all":
+        papers = [p for p in papers if p.source.lower() == source.lower()]
+
+    total = len(papers)
+    start = (page - 1) * per_page
+    end = start + per_page
+    page_papers = papers[start:end]
+
+    return {
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (total + per_page - 1) // per_page,
+        "papers": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "authors": "; ".join(p.authors[:3]) + ("..." if len(p.authors) > 3 else ""),
+                "year": p.year,
+                "source": p.source,
+                "venue": p.venue or "",
+                "doi": p.doi or "",
+                "decision": p.screen_decision,
+                "eligibility": p.eligibility_decision,
+            }
+            for p in page_papers
+        ],
+    }
+
+
 # ── First-pass screening ─────────────────────────────────────────────────────
 
 @router.get("/papers/screen")

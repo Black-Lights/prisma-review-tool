@@ -37,6 +37,10 @@ export const eligibilityScreen = (id: string, decision: string, reason: string) 
     body: JSON.stringify({ decision, reason }),
   });
 
+// Browse all papers (paginated)
+export const fetchAllPapers = (page = 1, perPage = 20, decision = "all", source = "all") =>
+  request<PaginatedPapersResponse>(`/api/papers?page=${page}&per_page=${perPage}&decision=${decision}&source=${source}`);
+
 // Paper details & search
 export const fetchPaper = (id: string) => request<PaperDetail>(`/api/papers/${id}`);
 export const searchPapers = (q: string) => request<SearchResponse>(`/api/papers/search?q=${encodeURIComponent(q)}`);
@@ -109,6 +113,14 @@ export interface EligibilityListResponse {
   remaining: number;
   returned: number;
   papers: PaperSummary[];
+}
+
+export interface PaginatedPapersResponse {
+  total: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+  papers: { id: string; title: string; authors: string; year: number; source: string; venue: string; doi: string; decision: string | null; eligibility: string | null }[];
 }
 
 export interface SearchResponse {
