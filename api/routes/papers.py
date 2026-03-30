@@ -46,9 +46,12 @@ def list_all_papers(
         papers = load_papers(config.dedup_dir / "deduplicated.json")
 
     # Filter
-    if decision == "eligible":
-        # Show papers that passed eligibility screening (second pass)
+    if decision == "eligible_included":
         elig_papers = load_papers(config.eligibility_dir / "eligible_included.json")
+        elig_ids = {p.id for p in elig_papers}
+        papers = [p for p in papers if p.id in elig_ids]
+    elif decision == "eligible_excluded":
+        elig_papers = load_papers(config.eligibility_dir / "eligible_excluded.json")
         elig_ids = {p.id for p in elig_papers}
         papers = [p for p in papers if p.id in elig_ids]
     elif decision != "all":

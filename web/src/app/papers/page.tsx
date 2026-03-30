@@ -90,10 +90,12 @@ export default function PapersPage() {
       <div className="flex flex-wrap items-center gap-3">
         <select value={decisionFilter} onChange={(e) => { setDecisionFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Decision: All</option>
-          <option value="include">Included</option>
+          <option value="include">Included (1st pass)</option>
           <option value="exclude">Excluded</option>
           <option value="maybe">Maybe</option>
-          <option value="eligible">Eligible (final)</option>
+          <option disabled className="text-text-muted">── Eligibility ──</option>
+          <option value="eligible_included">Eligible: Included</option>
+          <option value="eligible_excluded">Eligible: Excluded</option>
         </select>
         <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Source: All</option>
