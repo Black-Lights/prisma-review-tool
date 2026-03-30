@@ -113,33 +113,40 @@ function TutorialOverlay() {
   const [elRect, setElRect] = useState<Rect | null>(null);
   const [visible, setVisible] = useState(false);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryCountRef = useRef(0);
 
   const updateRect = useCallback(() => {
     if (!step?.target) {
       setElRect(null);
       setVisible(true);
+      retryCountRef.current = 0;
       return;
     }
     const el = document.querySelector(step.target) as HTMLElement | null;
     if (el) {
-      // Scroll element into view inside the main container
+      retryCountRef.current = 0;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Wait for scroll to settle, then measure
       setTimeout(() => {
         const r = el.getBoundingClientRect();
         setElRect({ top: r.top, left: r.left, width: r.width, height: r.height });
         setVisible(true);
-      }, 350);
+      }, 400);
     } else {
-      setVisible(false);
-      retryRef.current = setTimeout(() => updateRect(), 200);
+      // Element not found — page may still be loading after navigation
+      // Retry up to 15 times (3 seconds total)
+      retryCountRef.current++;
+      if (retryCountRef.current < 15) {
+        setVisible(false);
+        retryRef.current = setTimeout(() => updateRect(), 200);
+      }
     }
   }, [step]);
 
   useEffect(() => {
     if (!isActive || !step) { setVisible(false); return; }
     setVisible(false);
-    const timer = setTimeout(updateRect, 150);
+    retryCountRef.current = 0;
+    const timer = setTimeout(updateRect, 200);
     return () => {
       clearTimeout(timer);
       if (retryRef.current) clearTimeout(retryRef.current);
