@@ -100,7 +100,7 @@ def serve_pdf(filename: str, config: Config = Depends(get_config)):
     if not pdf_path.exists() or not safe_name.endswith(".pdf"):
         raise HTTPException(status_code=404, detail="PDF not found")
 
-    return FileResponse(pdf_path, media_type="application/pdf", filename=safe_name)
+    return FileResponse(pdf_path, media_type="application/pdf")
 
 
 @router.post("/papers/download")
