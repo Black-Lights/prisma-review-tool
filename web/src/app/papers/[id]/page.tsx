@@ -1,10 +1,9 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPaper, type PaperDetail } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
-import Link from "next/link";
 
 const methodColor: Record<string, string> = {
   rule: "bg-primary/15 text-primary",
@@ -20,6 +19,7 @@ const decisionColor: Record<string, string> = {
 
 export default function PaperDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const id = params.id as string;
 
   const { data: paper, isLoading, error } = useQuery<PaperDetail>({
@@ -39,12 +39,12 @@ export default function PaperDetailPage() {
   if (error || !paper) {
     return (
       <div className="max-w-3xl mx-auto space-y-6">
-        <Link
-          href="/papers"
-          className="text-primary hover:underline text-sm"
+        <button
+          onClick={() => router.back()}
+          className="text-primary hover:underline text-sm cursor-pointer"
         >
-          &larr; Back to Papers
-        </Link>
+          &larr; Go Back
+        </button>
         <p className="text-accent-red">Failed to load paper details.</p>
       </div>
     );
@@ -53,12 +53,12 @@ export default function PaperDetailPage() {
   return (
     <div className="max-w-3xl mx-auto space-y-8">
       {/* Back link */}
-      <Link
-        href="/papers"
-        className="inline-flex items-center gap-1 text-primary hover:underline text-sm"
+      <button
+        onClick={() => router.back()}
+        className="inline-flex items-center gap-1 text-primary hover:underline text-sm cursor-pointer"
       >
-        &larr; Back to Papers
-      </Link>
+        &larr; Go Back
+      </button>
 
       {/* Title */}
       <h1 className="text-2xl font-bold text-text-primary leading-snug">
