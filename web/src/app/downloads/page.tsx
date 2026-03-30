@@ -47,18 +47,13 @@ export default function DownloadsPage() {
     }
   };
 
-  const openPreview = async (filename: string) => {
-    // Revoke old blob URL
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  const openPreview = (filename: string) => {
     setPreviewFile(filename);
-    // Fetch PDF as blob to avoid cross-origin download issues
-    const res = await fetch(`${API_URL}/api/papers/downloads/${encodeURIComponent(filename)}`);
-    const blob = await res.blob();
-    setPreviewUrl(URL.createObjectURL(blob));
+    // Use same-origin Next.js API proxy to avoid cross-origin issues
+    setPreviewUrl(`/api/pdf/${encodeURIComponent(filename)}`);
   };
 
   const closePreview = () => {
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewFile(null);
     setPreviewUrl(null);
   };
