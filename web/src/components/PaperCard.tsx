@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronUp, Info } from "lucide-react";
+import Link from "next/link";
 import type { PaperSummary } from "@/lib/api";
 
 const sourceBadgeColors: Record<string, string> = {
@@ -27,9 +28,9 @@ export default function PaperCard({ paper, onDecision, mode = "screen" }: PaperC
     <div className="glass p-5 space-y-3">
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-base font-bold text-text-primary leading-snug flex-1">
+        <Link href={`/papers/${paper.id}`} className="text-base font-bold text-text-primary leading-snug flex-1 hover:text-primary transition-colors">
           {paper.title}
-        </h3>
+        </Link>
         <span className="shrink-0 rounded-full bg-bg-glass px-2.5 py-0.5 text-xs text-text-secondary">
           {paper.year}
         </span>

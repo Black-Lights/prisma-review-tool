@@ -320,6 +320,12 @@ class SessionManager:
             save_papers(excluded, config.screen_dir / "excluded.json")
             save_papers(maybe, config.screen_dir / "maybe.json")
 
+            # Clear stale eligibility data — included papers have changed
+            for elig_file in ["eligibility_results.json", "eligible_included.json", "eligible_excluded.json"]:
+                elig_path = config.eligibility_dir / elig_file
+                if elig_path.exists():
+                    save_papers([], elig_path)
+
             state = load_state(config.state_file)
             state["screen"] = {
                 "total_screened": len(papers),
@@ -327,6 +333,8 @@ class SessionManager:
                 "excluded": len(excluded),
                 "maybe": len(maybe),
             }
+            # Reset eligibility state since included papers changed
+            state.pop("eligibility", None)
             save_state(state, config.state_file)
 
         self._update(progress_message=f"Screening complete — {len(included)} included")

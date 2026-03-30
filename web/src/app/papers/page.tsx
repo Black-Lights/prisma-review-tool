@@ -93,6 +93,7 @@ export default function PapersPage() {
           <option value="include">Included</option>
           <option value="exclude">Excluded</option>
           <option value="maybe">Maybe</option>
+          <option value="eligible">Eligible (final)</option>
         </select>
         <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Source: All</option>
