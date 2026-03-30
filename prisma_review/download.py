@@ -119,6 +119,48 @@ def _get_semantic_scholar_pdf_url(doi: str) -> Optional[str]:
     return None
 
 
+def _download_elsevier_pdf(doi: str, api_key: str, path: Path) -> bool:
+    """Download a PDF directly from Elsevier/ScienceDirect using the Scopus API key.
+
+    Works for papers the institution subscribes to (requires institutional network
+    or VPN). Uses the Elsevier Article Retrieval API with Accept: application/pdf.
+    """
+    if not doi or not api_key:
+        return False
+
+    clean_doi = doi.strip()
+    for prefix in ["https://doi.org/", "http://doi.org/", "doi:"]:
+        if clean_doi.lower().startswith(prefix):
+            clean_doi = clean_doi[len(prefix):]
+
+    try:
+        resp = requests.get(
+            f"https://api.elsevier.com/content/article/doi/{clean_doi}",
+            headers={
+                "X-ELS-APIKey": api_key,
+                "Accept": "application/pdf",
+            },
+            timeout=30,
+            stream=True,
+        )
+        if resp.status_code == 200:
+            content_type = resp.headers.get("content-type", "")
+            if "pdf" in content_type:
+                with open(path, "wb") as f:
+                    for chunk in resp.iter_content(chunk_size=8192):
+                        f.write(chunk)
+                # Verify PDF header
+                with open(path, "rb") as f:
+                    header = f.read(5)
+                if header == b"%PDF-":
+                    return True
+                else:
+                    path.unlink(missing_ok=True)
+    except requests.RequestException:
+        pass
+    return False
+
+
 def _download_pdf(url: str, path: Path) -> bool:
     """Download a PDF from a URL."""
     try:
@@ -148,14 +190,22 @@ def download_papers(
     papers: list[Paper],
     output_dir: Path,
     email: str = "",
+    api_key: str = "",
     delay: float = 1.0,
 ) -> dict:
-    """Download open access PDFs for a list of papers.
+    """Download PDFs for a list of papers.
+
+    Tries multiple strategies in order:
+    0. Elsevier/ScienceDirect (if api_key provided — institutional access)
+    1. arXiv (always free)
+    2. Unpaywall (free OA finder)
+    3. Semantic Scholar (free OA)
 
     Args:
         papers: List of Paper objects to download
         output_dir: Directory to save PDFs
         email: Email for Unpaywall API (required for non-arXiv papers)
+        api_key: Elsevier/Scopus API key (for institutional full-text access)
         delay: Seconds between API calls (be polite to servers)
 
     Returns:
@@ -179,6 +229,24 @@ def download_papers(
             results.append({"id": paper.id, "title": paper.title, "file": filename, "status": "exists"})
             downloaded += 1
             continue
+
+        # Strategy 0: Elsevier/ScienceDirect (institutional access via API key)
+        if api_key and paper.doi:
+            if _download_elsevier_pdf(paper.doi, api_key, filepath):
+                status = "downloaded"
+                downloaded += 1
+                results.append({
+                    "id": paper.id,
+                    "title": paper.title[:80],
+                    "file": filename,
+                    "status": status,
+                    "doi": paper.doi,
+                })
+                time.sleep(delay)
+                if (i + 1) % 10 == 0:
+                    print(f"  [{i + 1}/{len(papers)}] Downloaded: {downloaded}, No OA: {skipped}, Failed: {failed}")
+                continue
+            time.sleep(delay)
 
         # Strategy 1: arXiv (always free)
         pdf_url = _get_arxiv_pdf_url(paper.doi, paper.url)

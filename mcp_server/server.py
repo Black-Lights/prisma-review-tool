@@ -525,7 +525,7 @@ def download_eligible_papers() -> str:
         return json.dumps({"error": "No papers found. Run screening first."})
 
     pdf_dir = config.output_dir / "05_pdfs"
-    stats = download_papers(papers, pdf_dir, email=config.openalex_email)
+    stats = download_papers(papers, pdf_dir, email=config.openalex_email, api_key=config.scopus_key)
 
     return json.dumps({
         "status": "ok",

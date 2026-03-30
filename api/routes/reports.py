@@ -121,7 +121,7 @@ def download_pdfs(config: Config = Depends(get_config)):
         return {"error": "No papers found. Run screening first."}
 
     pdf_dir = config.output_dir / "05_pdfs"
-    stats = download_papers(papers, pdf_dir, email=config.openalex_email)
+    stats = download_papers(papers, pdf_dir, email=config.openalex_email, api_key=config.scopus_key)
 
     # Enrich results with DOI (download_papers doesn't include it)
     paper_map = {p.id: p for p in papers}
