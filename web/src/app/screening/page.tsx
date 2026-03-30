@@ -28,6 +28,7 @@ export default function ScreeningPage() {
     queryKey: ["papers-to-screen", filter, batchSize],
     queryFn: () => fetchPapersToScreen(batchSize, filter),
     placeholderData: (prev) => prev,
+    staleTime: 30_000,
   });
 
   const handleDecision = async (id: string, decision: string, reason: string) => {

@@ -34,6 +34,7 @@ export default function PapersPage() {
     queryKey: ["all-papers", page, perPage, decisionFilter, sourceFilter],
     queryFn: () => fetchAllPapers(page, perPage, decisionFilter, sourceFilter),
     placeholderData: (prev) => prev,
+    staleTime: 30_000,
   });
 
   // Search

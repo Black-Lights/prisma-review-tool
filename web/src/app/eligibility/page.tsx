@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchEligibilityPapers,
@@ -10,10 +11,12 @@ import PaperCard from "@/components/PaperCard";
 
 export default function EligibilityPage() {
   const queryClient = useQueryClient();
+  const [batchSize, setBatchSize] = useState(20);
 
-  const { data, isLoading, error } = useQuery<EligibilityListResponse>({
-    queryKey: ["eligibility-papers"],
-    queryFn: () => fetchEligibilityPapers(20),
+  const { data, isLoading } = useQuery<EligibilityListResponse>({
+    queryKey: ["eligibility-papers", batchSize],
+    queryFn: () => fetchEligibilityPapers(batchSize),
+    placeholderData: (prev) => prev,
   });
 
   const mutation = useMutation({
@@ -28,13 +31,18 @@ export default function EligibilityPage() {
     }) => eligibilityScreen(id, decision, reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["eligibility-papers"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
     },
   });
 
   const total = data?.total_first_pass_included ?? 0;
   const screened = data?.already_screened ?? 0;
   const remaining = data?.remaining ?? 0;
-  const progress = total > 0 ? (screened / total) * 100 : 0;
+  const progress = total > 0 ? Math.min((screened / total) * 100, 100) : 0;
+
+  const handleLoadMore = () => {
+    setBatchSize((prev) => prev + 20);
+  };
 
   return (
     <div className="space-y-6">
@@ -54,38 +62,36 @@ export default function EligibilityPage() {
       </p>
 
       {/* Progress bar */}
-      <div className="space-y-2">
-        <div className="flex justify-between text-xs text-text-muted">
-          <span>
-            {screened} of {total} screened
-          </span>
-          <span>{progress.toFixed(1)}%</span>
+      {total > 0 && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs text-text-muted">
+            <span>
+              {screened} of {total} screened
+            </span>
+            <span>{progress.toFixed(1)}%</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-bg-glass">
+            <div
+              className="h-1.5 rounded-full bg-accent-purple transition-all duration-500"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
         </div>
-        <div className="h-1.5 w-full rounded-full bg-bg-glass">
-          <div
-            className="h-1.5 rounded-full bg-accent-purple transition-all duration-500"
-            style={{ width: `${progress}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Content */}
-      {isLoading && (
-        <p className="text-text-muted text-sm animate-pulse">
-          Loading papers...
-        </p>
       )}
 
-      {error && (
-        <p className="text-accent-red text-sm">
-          Failed to load eligibility papers.
+      {/* Content */}
+      {isLoading && !data && (
+        <p className="text-text-muted text-sm animate-pulse">
+          Loading papers...
         </p>
       )}
 
       {data && data.papers.length === 0 && (
         <div className="glass p-12 text-center">
           <p className="text-text-secondary">
-            No papers remaining for eligibility screening.
+            {total === 0
+              ? "No first-pass included papers found. Run screening first."
+              : "All papers have been screened for eligibility."}
           </p>
         </div>
       )}
@@ -97,12 +103,24 @@ export default function EligibilityPage() {
             key={paper.id}
             paper={paper}
             mode="eligibility"
-            onDecision={(decision: string, reason: string) =>
-              mutation.mutate({ id: paper.id, decision, reason })
+            onDecision={(id: string, decision: string, reason: string) =>
+              mutation.mutate({ id, decision, reason })
             }
           />
         ))}
       </div>
+
+      {/* Load More */}
+      {data?.papers && data.papers.length > 0 && data.papers.length < remaining && (
+        <div className="flex justify-center pt-2">
+          <button
+            onClick={handleLoadMore}
+            className="px-6 py-2.5 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
+          >
+            Load More
+          </button>
+        </div>
+      )}
     </div>
   );
 }
