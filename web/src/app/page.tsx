@@ -1,21 +1,19 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Play, RefreshCw, Square } from "lucide-react";
+import { CheckCircle2, Circle, Play, Square } from "lucide-react";
 import StatCard from "@/components/StatCard";
 import GlassCard from "@/components/GlassCard";
 import PipelineProgress from "@/components/PipelineProgress";
+import PrismaFlowDiagram from "@/components/PrismaFlowDiagram";
 import {
   fetchStats,
-  generateReport,
   startPipeline,
   fetchPipelineProgress,
   PipelineStatusType,
 } from "@/lib/api";
 import Modal from "@/components/Modal";
 import { useState, useCallback } from "react";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const PIPELINE_STEPS = [
   { key: "search", label: "Search Databases", statPath: "search.total" },
@@ -37,7 +35,6 @@ function getNestedValue(obj: any, path: string | null): number | null {
 
 export default function DashboardPage() {
   const queryClient = useQueryClient();
-  const [regenerating, setRegenerating] = useState(false);
   const [showRunAllModal, setShowRunAllModal] = useState(false);
 
   // Check if pipeline is already running on mount
@@ -54,16 +51,6 @@ export default function DashboardPage() {
     // Refetch stats while pipeline runs so counts update as steps complete
     refetchInterval: isPipelineRunning ? 5000 : false,
   });
-
-  const handleRegenerate = async () => {
-    setRegenerating(true);
-    try {
-      await generateReport();
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    } finally {
-      setRegenerating(false);
-    }
-  };
 
   // When pipeline is running, show "--" for stats of steps not yet completed
   const stepsCompleted = progress?.completed_steps ?? [];
@@ -126,21 +113,7 @@ export default function DashboardPage() {
         {/* PRISMA Flow -- left column */}
         <div className="lg:col-span-3 space-y-4">
           <h2 className="text-xl font-semibold text-text-primary">PRISMA Flow</h2>
-          <GlassCard className="flex flex-col items-center gap-4">
-            <img
-              src={`${API_URL}/api/reports/prisma-flow`}
-              alt="PRISMA 2020 flow diagram"
-              className="w-full rounded-lg"
-            />
-            <button
-              onClick={handleRegenerate}
-              disabled={regenerating}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-dim text-primary border border-primary/20 hover:bg-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
-            >
-              <RefreshCw size={16} className={regenerating ? "animate-spin" : ""} />
-              {regenerating ? "Regenerating..." : "Regenerate"}
-            </button>
-          </GlassCard>
+          <PrismaFlowDiagram stats={stats} />
         </div>
 
         {/* Pipeline -- right column */}
