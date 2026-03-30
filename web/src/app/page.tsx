@@ -75,7 +75,7 @@ export default function DashboardPage() {
     ? "--" : (stats?.dedup?.remaining ?? 0);
   const firstPassIncluded = isPipelineRunning && !stepsCompleted.includes("screen")
     ? "--" : (stats?.screen?.included ?? 0);
-  const finalEligible = stats?.eligibility?.included ?? 0;
+  const finalEligible = isPipelineRunning ? "--" : (stats?.eligibility?.included ?? 0);
 
   const handleRunAllClick = () => {
     if (isPipelineRunning) return;
