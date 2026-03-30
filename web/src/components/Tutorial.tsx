@@ -17,66 +17,94 @@ interface Rect {
 const BUBBLE_W = 360;
 const BUBBLE_H_EST = 220;
 const GAP = 16;
-const PAD = 8;
+const PAD = 10;
 
-function calcBubblePosition(
-  elRect: Rect
-): { pos: BubblePosition; x: number; y: number } {
+function calcBubblePosition(elRect: Rect): { pos: BubblePosition; x: number; y: number } {
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const cx = elRect.left + elRect.width / 2;
   const cy = elRect.top + elRect.height / 2;
 
-  // Prefer right
   if (elRect.left + elRect.width + GAP + BUBBLE_W + PAD < vw) {
     return { pos: "right", x: elRect.left + elRect.width + GAP, y: Math.max(PAD, Math.min(cy - BUBBLE_H_EST / 2, vh - BUBBLE_H_EST - PAD)) };
   }
-  // Try left
   if (elRect.left - GAP - BUBBLE_W > PAD) {
     return { pos: "left", x: elRect.left - GAP - BUBBLE_W, y: Math.max(PAD, Math.min(cy - BUBBLE_H_EST / 2, vh - BUBBLE_H_EST - PAD)) };
   }
-  // Try bottom
   if (elRect.top + elRect.height + GAP + BUBBLE_H_EST + PAD < vh) {
     return { pos: "bottom", x: Math.max(PAD, Math.min(cx - BUBBLE_W / 2, vw - BUBBLE_W - PAD)), y: elRect.top + elRect.height + GAP };
   }
-  // Fallback top
   return { pos: "top", x: Math.max(PAD, Math.min(cx - BUBBLE_W / 2, vw - BUBBLE_W - PAD)), y: Math.max(PAD, elRect.top - GAP - BUBBLE_H_EST) };
 }
 
-function Arrow({ pos, elRect, bubbleX, bubbleY }: { pos: BubblePosition; elRect: Rect; bubbleX: number; bubbleY: number }) {
+function Arrow({ pos, elRect, bubbleY }: { pos: BubblePosition; elRect: Rect; bubbleY: number }) {
   const s = 10;
-  const color = "rgba(125,211,252,0.15)";
 
   if (pos === "right") {
-    const ay = elRect.top + elRect.height / 2 - bubbleY;
-    return (
-      <div className="absolute" style={{ left: -s, top: Math.max(20, Math.min(ay - s, BUBBLE_H_EST - 40)) }}>
-        <div style={{ width: 0, height: 0, borderTop: `${s}px solid transparent`, borderBottom: `${s}px solid transparent`, borderRight: `${s}px solid ${color}` }} />
-      </div>
-    );
+    const ay = Math.max(20, Math.min(elRect.top + elRect.height / 2 - bubbleY - s, BUBBLE_H_EST - 40));
+    return <div className="absolute" style={{ left: -s, top: ay }}><div style={{ width: 0, height: 0, borderTop: `${s}px solid transparent`, borderBottom: `${s}px solid transparent`, borderRight: `${s}px solid rgba(15,21,36,0.95)` }} /></div>;
   }
   if (pos === "left") {
-    const ay = elRect.top + elRect.height / 2 - bubbleY;
-    return (
-      <div className="absolute" style={{ right: -s, top: Math.max(20, Math.min(ay - s, BUBBLE_H_EST - 40)) }}>
-        <div style={{ width: 0, height: 0, borderTop: `${s}px solid transparent`, borderBottom: `${s}px solid transparent`, borderLeft: `${s}px solid ${color}` }} />
-      </div>
-    );
+    const ay = Math.max(20, Math.min(elRect.top + elRect.height / 2 - bubbleY - s, BUBBLE_H_EST - 40));
+    return <div className="absolute" style={{ right: -s, top: ay }}><div style={{ width: 0, height: 0, borderTop: `${s}px solid transparent`, borderBottom: `${s}px solid transparent`, borderLeft: `${s}px solid rgba(15,21,36,0.95)` }} /></div>;
   }
   if (pos === "bottom") {
-    const ax = elRect.left + elRect.width / 2 - bubbleX;
-    return (
-      <div className="absolute" style={{ top: -s, left: Math.max(20, Math.min(ax - s, BUBBLE_W - 40)) }}>
-        <div style={{ width: 0, height: 0, borderLeft: `${s}px solid transparent`, borderRight: `${s}px solid transparent`, borderBottom: `${s}px solid ${color}` }} />
-      </div>
-    );
+    return <div className="absolute" style={{ top: -s, left: BUBBLE_W / 2 - s }}><div style={{ width: 0, height: 0, borderLeft: `${s}px solid transparent`, borderRight: `${s}px solid transparent`, borderBottom: `${s}px solid rgba(15,21,36,0.95)` }} /></div>;
   }
-  // top
-  const ax = elRect.left + elRect.width / 2 - bubbleX;
+  return <div className="absolute" style={{ bottom: -s, left: BUBBLE_W / 2 - s }}><div style={{ width: 0, height: 0, borderLeft: `${s}px solid transparent`, borderRight: `${s}px solid transparent`, borderTop: `${s}px solid rgba(15,21,36,0.95)` }} /></div>;
+}
+
+/**
+ * SVG-based overlay with a rectangular cutout for the highlighted element.
+ * This approach works regardless of stacking contexts or overflow containers.
+ */
+function OverlayWithCutout({ rect, onClick }: { rect: Rect | null; onClick: () => void }) {
+  const vw = typeof window !== "undefined" ? window.innerWidth : 1920;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 1080;
+
   return (
-    <div className="absolute" style={{ bottom: -s, left: Math.max(20, Math.min(ax - s, BUBBLE_W - 40)) }}>
-      <div style={{ width: 0, height: 0, borderLeft: `${s}px solid transparent`, borderRight: `${s}px solid transparent`, borderTop: `${s}px solid ${color}` }} />
-    </div>
+    <svg
+      className="fixed inset-0 w-full h-full"
+      style={{ zIndex: 200, pointerEvents: "auto" }}
+      onClick={onClick}
+      viewBox={`0 0 ${vw} ${vh}`}
+      preserveAspectRatio="none"
+    >
+      <defs>
+        <mask id="tutorial-mask">
+          <rect x="0" y="0" width={vw} height={vh} fill="white" />
+          {rect && (
+            <rect
+              x={rect.left - PAD}
+              y={rect.top - PAD}
+              width={rect.width + PAD * 2}
+              height={rect.height + PAD * 2}
+              rx="12"
+              fill="black"
+            />
+          )}
+        </mask>
+      </defs>
+      <rect
+        x="0" y="0" width={vw} height={vh}
+        fill="rgba(0,0,0,0.82)"
+        mask="url(#tutorial-mask)"
+      />
+      {/* Glow border around the cutout */}
+      {rect && (
+        <rect
+          x={rect.left - PAD}
+          y={rect.top - PAD}
+          width={rect.width + PAD * 2}
+          height={rect.height + PAD * 2}
+          rx="12"
+          fill="none"
+          stroke="rgba(125,211,252,0.6)"
+          strokeWidth="2.5"
+          style={{ filter: "drop-shadow(0 0 12px rgba(125,211,252,0.4)) drop-shadow(0 0 30px rgba(125,211,252,0.15))", pointerEvents: "none" }}
+        />
+      )}
+    </svg>
   );
 }
 
@@ -84,7 +112,7 @@ function TutorialOverlay() {
   const { isActive, step, currentStep, totalSteps, next, back, skip } = useTutorial();
   const [elRect, setElRect] = useState<Rect | null>(null);
   const [visible, setVisible] = useState(false);
-  const rafRef = useRef<number>(0);
+  const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateRect = useCallback(() => {
     if (!step?.target) {
@@ -92,44 +120,31 @@ function TutorialOverlay() {
       setVisible(true);
       return;
     }
-    const el = document.querySelector(step.target);
+    const el = document.querySelector(step.target) as HTMLElement | null;
     if (el) {
-      const r = el.getBoundingClientRect();
-      setElRect({ top: r.top, left: r.left, width: r.width, height: r.height });
-      setVisible(true);
+      // Scroll element into view inside the main container
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Wait for scroll to settle, then measure
+      setTimeout(() => {
+        const r = el.getBoundingClientRect();
+        setElRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        setVisible(true);
+      }, 350);
     } else {
-      // Element not yet in DOM (page navigation pending), retry
       setVisible(false);
-      rafRef.current = requestAnimationFrame(() => {
-        setTimeout(() => updateRect(), 150);
-      });
+      retryRef.current = setTimeout(() => updateRect(), 200);
     }
   }, [step]);
 
   useEffect(() => {
     if (!isActive || !step) { setVisible(false); return; }
     setVisible(false);
-    const timer = setTimeout(updateRect, 100);
-    return () => { clearTimeout(timer); cancelAnimationFrame(rafRef.current); };
-  }, [isActive, step, updateRect]);
-
-  // Boost z-index of highlighted element so it appears above the overlay
-  useEffect(() => {
-    if (!isActive || !step?.target) return;
-    const el = document.querySelector(step.target) as HTMLElement | null;
-    if (!el) return;
-
-    const origPosition = el.style.position;
-    const origZIndex = el.style.zIndex;
-
-    el.style.position = "relative";
-    el.style.zIndex = "201";
-
+    const timer = setTimeout(updateRect, 150);
     return () => {
-      el.style.position = origPosition;
-      el.style.zIndex = origZIndex;
+      clearTimeout(timer);
+      if (retryRef.current) clearTimeout(retryRef.current);
     };
-  }, [isActive, step]);
+  }, [isActive, step, updateRect]);
 
   // Reposition on resize
   useEffect(() => {
@@ -145,7 +160,6 @@ function TutorialOverlay() {
   const isLast = currentStep === totalSteps - 1;
   const isFirst = currentStep === 0;
 
-  // Bubble position
   let bubbleX: number, bubbleY: number;
   let bubblePos: BubblePosition = "right";
 
@@ -160,30 +174,13 @@ function TutorialOverlay() {
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[200]" style={{ pointerEvents: "auto" }}>
-      {/* Dark overlay */}
-      <div className="absolute inset-0 bg-black/80 transition-opacity duration-200" onClick={skip} />
-
-      {/* Cutout highlight with bright glow border */}
-      {elRect && (
-        <div
-          className="absolute rounded-xl transition-all duration-200 ease-out"
-          style={{
-            top: elRect.top - PAD,
-            left: elRect.left - PAD,
-            width: elRect.width + PAD * 2,
-            height: elRect.height + PAD * 2,
-            boxShadow: `0 0 0 9999px rgba(0,0,0,0.8), 0 0 0 3px rgba(125,211,252,0.7), 0 0 20px rgba(125,211,252,0.3), 0 0 40px rgba(125,211,252,0.1)`,
-            background: "transparent",
-            pointerEvents: "none",
-            zIndex: 201,
-          }}
-        />
-      )}
+    <>
+      {/* SVG overlay with cutout — works across stacking contexts */}
+      <OverlayWithCutout rect={isCenter ? null : elRect} onClick={skip} />
 
       {/* Bubble card */}
       <div
-        className="absolute transition-all duration-200 ease-out"
+        className="fixed transition-all duration-200 ease-out"
         style={{
           left: bubbleX,
           top: bubbleY,
@@ -194,7 +191,7 @@ function TutorialOverlay() {
       >
         {/* Arrow */}
         {!isCenter && elRect && (
-          <Arrow pos={bubblePos} elRect={elRect} bubbleX={bubbleX} bubbleY={bubbleY} />
+          <Arrow pos={bubblePos} elRect={elRect} bubbleY={bubbleY} />
         )}
 
         {/* Card */}
@@ -203,8 +200,8 @@ function TutorialOverlay() {
           style={{
             background: "rgba(15,21,36,0.95)",
             backdropFilter: "blur(20px)",
-            border: "1px solid rgba(125,211,252,0.15)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+            border: "1px solid rgba(125,211,252,0.2)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.5), 0 0 20px rgba(125,211,252,0.08)",
           }}
         >
           {/* Step counter */}
@@ -223,13 +220,9 @@ function TutorialOverlay() {
 
           {/* Buttons */}
           <div className="flex items-center justify-between pt-1">
-            <button
-              onClick={skip}
-              className="text-xs text-text-muted hover:underline cursor-pointer"
-            >
+            <button onClick={skip} className="text-xs text-text-muted hover:underline cursor-pointer">
               Skip Tutorial
             </button>
-
             <div className="flex items-center gap-2">
               {!isFirst && (
                 <button
@@ -244,13 +237,9 @@ function TutorialOverlay() {
                 className="flex items-center gap-1 px-4 py-1.5 rounded-lg text-xs font-semibold bg-primary text-bg-base hover:opacity-90 transition-colors cursor-pointer"
               >
                 {isLast ? (
-                  <>
-                    <Rocket size={14} /> Start Using App
-                  </>
+                  <><Rocket size={14} /> Start Using App</>
                 ) : (
-                  <>
-                    Next <ChevronRight size={14} />
-                  </>
+                  <>Next <ChevronRight size={14} /></>
                 )}
               </button>
             </div>
@@ -269,7 +258,7 @@ function TutorialOverlay() {
           </div>
         </div>
       </div>
-    </div>,
+    </>,
     document.body
   );
 }
