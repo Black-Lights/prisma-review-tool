@@ -42,9 +42,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(reports.router, prefix="/api")
 app.include_router(papers.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
-app.include_router(reports.router, prefix="/api")
 app.include_router(config_routes.router, prefix="/api")
 
 
