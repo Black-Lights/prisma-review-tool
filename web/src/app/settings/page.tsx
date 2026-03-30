@@ -65,12 +65,13 @@ export default function SettingsPage() {
     if (!value.trim()) return;
     setForm((prev: any) => {
       const next = structuredClone(prev);
-      const list = next?.screening_rules?.[type] ?? [];
+      if (!next.screening) next.screening = {};
+      if (!next.screening.rules) next.screening.rules = {};
+      const list = next.screening.rules[type] ?? [];
       if (!list.includes(value.trim())) {
         list.push(value.trim());
       }
-      if (!next.screening_rules) next.screening_rules = {};
-      next.screening_rules[type] = list;
+      next.screening.rules[type] = list;
       return next;
     });
   };
@@ -78,7 +79,7 @@ export default function SettingsPage() {
   const removeKeyword = (type: "include_keywords" | "exclude_keywords", index: number) => {
     setForm((prev: any) => {
       const next = structuredClone(prev);
-      next.screening_rules[type].splice(index, 1);
+      next.screening.rules[type].splice(index, 1);
       return next;
     });
   };
@@ -95,16 +96,6 @@ export default function SettingsPage() {
       return next;
     });
   };
-
-  const queriesYaml = form?.search?.queries
-    ? typeof form.search.queries === "string"
-      ? form.search.queries
-      : Array.isArray(form.search.queries)
-        ? form.search.queries.map((q: any) =>
-            typeof q === "string" ? `- "${q}"` : `- terms: ${JSON.stringify(q.terms)}\n  boolean: "${q.boolean || ""}"`
-          ).join("\n")
-        : ""
-    : "";
 
   if (isLoading) {
     return (
@@ -157,8 +148,8 @@ export default function SettingsPage() {
         <label className="block text-sm text-text-secondary mb-1">Project Name</label>
         <input
           type="text"
-          value={form?.project ?? ""}
-          onChange={(e) => updateField(["project"], e.target.value)}
+          value={form?.project?.name ?? ""}
+          onChange={(e) => updateField(["project", "name"], e.target.value)}
           className="glass-input w-full max-w-md"
           placeholder="My Literature Review"
         />
@@ -175,8 +166,8 @@ export default function SettingsPage() {
             <label className="block text-sm text-text-secondary mb-1">Start Date</label>
             <input
               type="date"
-              value={form?.search?.start_date ?? ""}
-              onChange={(e) => updateField(["search", "start_date"], e.target.value)}
+              value={form?.search?.date_range?.start ?? ""}
+              onChange={(e) => updateField(["search", "date_range", "start"], e.target.value)}
               className="glass-input w-full"
             />
           </div>
@@ -184,8 +175,8 @@ export default function SettingsPage() {
             <label className="block text-sm text-text-secondary mb-1">End Date</label>
             <input
               type="date"
-              value={form?.search?.end_date ?? ""}
-              onChange={(e) => updateField(["search", "end_date"], e.target.value)}
+              value={form?.search?.date_range?.end ?? ""}
+              onChange={(e) => updateField(["search", "date_range", "end"], e.target.value)}
               className="glass-input w-full"
             />
           </div>
@@ -220,34 +211,124 @@ export default function SettingsPage() {
 
       {/* Search Queries */}
       <GlassCard>
-        <div className="flex items-center gap-2 mb-4">
-          <FileText className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold text-text-primary">Search Queries</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <FileText className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">Search Queries</h2>
+          </div>
+          <div className="relative group">
+            <button className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-sm font-bold">
+              i
+            </button>
+            <div className="absolute right-0 top-9 w-80 glass-elevated p-4 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-sm space-y-2 shadow-xl">
+              <p className="font-semibold text-text-primary">How to write queries</p>
+              <ul className="text-text-secondary space-y-1.5 list-none">
+                <li><span className="text-primary font-mono text-xs">OR</span> — between synonyms: <span className="text-text-muted font-mono text-xs">&quot;crop&quot; OR &quot;agriculture&quot;</span></li>
+                <li><span className="text-primary font-mono text-xs">AND</span> — between concepts: <span className="text-text-muted font-mono text-xs">&quot;deep learning&quot; AND &quot;remote sensing&quot;</span></li>
+                <li><span className="text-primary font-mono text-xs">&quot;...&quot;</span> — exact phrase: <span className="text-text-muted font-mono text-xs">&quot;foundation model&quot;</span></li>
+                <li><span className="text-primary font-mono text-xs">( )</span> — grouping: <span className="text-text-muted font-mono text-xs">(&quot;A&quot; OR &quot;B&quot;) AND &quot;C&quot;</span></li>
+              </ul>
+              <p className="text-text-muted pt-1 border-t border-border-glass">Each query is sent to all selected databases. Use 3-5 focused queries rather than one large query.</p>
+            </div>
+          </div>
         </div>
-        <p className="text-sm text-text-muted mb-3">
-          Edit queries in YAML format. Each entry defines a search query sent to the selected sources.
-        </p>
-        <textarea
-          value={queriesYaml}
-          onChange={(e) => updateField(["search", "queries"], e.target.value)}
-          rows={10}
-          className="glass-input w-full font-mono text-sm leading-relaxed resize-y"
-          placeholder={'- "geospatial foundation models"\n- terms: ["remote sensing", "pre-training"]\n  boolean: "AND"'}
-        />
+
+        {/* Query cards */}
+        <div className="space-y-4">
+          {(Array.isArray(form?.search?.queries) ? form.search.queries : []).map((q: any, idx: number) => (
+            <div key={idx} className="glass p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-md bg-primary/15 text-primary text-xs font-bold">{idx + 1}</span>
+                  <input
+                    type="text"
+                    value={q.name || ""}
+                    onChange={(e) => {
+                      setForm((prev: any) => {
+                        const next = structuredClone(prev);
+                        next.search.queries[idx].name = e.target.value;
+                        return next;
+                      });
+                    }}
+                    className="glass-input py-1 px-2 text-sm font-medium w-80"
+                    placeholder="Query name"
+                  />
+                </div>
+                <button
+                  onClick={() => {
+                    setForm((prev: any) => {
+                      const next = structuredClone(prev);
+                      next.search.queries.splice(idx, 1);
+                      return next;
+                    });
+                  }}
+                  className="text-text-muted hover:text-accent-red p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <textarea
+                value={q.terms || ""}
+                onChange={(e) => {
+                  setForm((prev: any) => {
+                    const next = structuredClone(prev);
+                    next.search.queries[idx].terms = e.target.value;
+                    return next;
+                  });
+                }}
+                rows={3}
+                className="glass-input w-full font-mono text-sm leading-relaxed resize-y"
+                placeholder={'("term A" OR "term B") AND ("method") AND ("domain")'}
+              />
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={() => {
+            setForm((prev: any) => {
+              const next = structuredClone(prev);
+              if (!next.search) next.search = {};
+              if (!next.search.queries) next.search.queries = [];
+              next.search.queries.push({ name: `query_${next.search.queries.length + 1}`, terms: "" });
+              return next;
+            });
+          }}
+          className="mt-4 flex items-center gap-2 px-4 py-2 rounded-lg border border-dashed border-border-glass-hover text-text-secondary hover:text-primary hover:border-primary/30"
+        >
+          <Plus className="w-4 h-4" />
+          Add Query
+        </button>
       </GlassCard>
 
       {/* Screening Rules */}
       <GlassCard>
-        <div className="flex items-center gap-2 mb-4">
-          <Filter className="w-5 h-5 text-primary" />
-          <h2 className="text-lg font-semibold text-text-primary">Screening Rules</h2>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">Screening Rules</h2>
+          </div>
+          <div className="relative group">
+            <button className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-sm font-bold">
+              i
+            </button>
+            <div className="absolute right-0 top-9 w-80 glass-elevated p-4 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-sm space-y-2 shadow-xl">
+              <p className="font-semibold text-text-primary">How screening works</p>
+              <ul className="text-text-secondary space-y-1.5 list-none">
+                <li><span className="text-accent-green font-semibold">Include</span> — paper matches ≥ minimum threshold of include keywords AND 0 exclude keywords</li>
+                <li><span className="text-accent-red font-semibold">Exclude</span> — paper matches any exclude keyword</li>
+                <li><span className="text-accent-amber font-semibold">Maybe</span> — not enough include keywords, no exclude match</li>
+              </ul>
+              <p className="text-text-muted pt-1 border-t border-border-glass">Example: with threshold=4 and 12 include keywords, a paper must mention at least 4 of them in title+abstract to be included.</p>
+            </div>
+          </div>
         </div>
 
         {/* Include Keywords */}
         <div className="mb-6">
           <label className="block text-sm text-text-secondary mb-2">Include Keywords</label>
           <div className="flex flex-wrap gap-2 mb-2">
-            {(form?.screening_rules?.include_keywords ?? []).map((kw: string, i: number) => (
+            {(form?.screening?.rules?.include_keywords ?? []).map((kw: string, i: number) => (
               <span
                 key={i}
                 className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-primary-dim text-primary border border-primary/20"
@@ -269,12 +350,13 @@ export default function SettingsPage() {
               onChange={(e) => setIncludeInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
+                  e.preventDefault();
                   addKeyword("include_keywords", includeInput);
                   setIncludeInput("");
                 }
               }}
               className="glass-input flex-1"
-              placeholder="Add include keyword..."
+              placeholder='e.g. "foundation model", "remote sensing"'
             />
             <button
               onClick={() => {
@@ -292,7 +374,7 @@ export default function SettingsPage() {
         <div className="mb-6">
           <label className="block text-sm text-text-secondary mb-2">Exclude Keywords</label>
           <div className="flex flex-wrap gap-2 mb-2">
-            {(form?.screening_rules?.exclude_keywords ?? []).map((kw: string, i: number) => (
+            {(form?.screening?.rules?.exclude_keywords ?? []).map((kw: string, i: number) => (
               <span
                 key={i}
                 className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-accent-red/15 text-accent-red border border-accent-red/20"
@@ -314,12 +396,13 @@ export default function SettingsPage() {
               onChange={(e) => setExcludeInput(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
+                  e.preventDefault();
                   addKeyword("exclude_keywords", excludeInput);
                   setExcludeInput("");
                 }
               }}
               className="glass-input flex-1"
-              placeholder="Add exclude keyword..."
+              placeholder='e.g. "medical imaging", "urban", "flood"'
             />
             <button
               onClick={() => {
@@ -335,21 +418,32 @@ export default function SettingsPage() {
 
         {/* Min Include Hits */}
         <div>
-          <label className="block text-sm text-text-secondary mb-1">
-            Minimum Include Keyword Hits
-          </label>
+          <div className="flex items-center gap-2 mb-1">
+            <label className="block text-sm text-text-secondary">
+              Minimum Include Keyword Hits
+            </label>
+            <div className="relative group">
+              <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">
+                i
+              </button>
+              <div className="absolute left-0 bottom-7 w-72 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1.5 shadow-xl">
+                <p className="text-text-primary font-medium">How many include keywords must appear in a paper&apos;s title+abstract for it to pass.</p>
+                <p className="text-text-muted">Low (1-2) = permissive, many papers pass</p>
+                <p className="text-text-muted">High (4-5) = strict, only highly relevant papers</p>
+                <p className="text-accent-amber">Tip: Start with 2, check results, increase if too many pass.</p>
+              </div>
+            </div>
+          </div>
           <input
             type="number"
-            value={form?.screening_rules?.min_include_hits ?? 1}
+            value={form?.screening?.rules?.min_include_hits ?? 2}
             onChange={(e) =>
-              updateField(["screening_rules", "min_include_hits"], parseInt(e.target.value) || 0)
+              updateField(["screening", "rules", "min_include_hits"], parseInt(e.target.value) || 1)
             }
             className="glass-input w-32"
-            min={0}
+            min={1}
+            max={10}
           />
-          <p className="text-xs text-text-muted mt-1">
-            Papers must match at least this many include keywords to pass screening.
-          </p>
         </div>
       </GlassCard>
 
@@ -361,7 +455,7 @@ export default function SettingsPage() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-text-secondary mb-1">OpenAlex Email</label>
+            <label className="block text-sm text-text-secondary mb-1">OpenAlex Email (optional, for faster API access)</label>
             <input
               type="text"
               value={form?.api_keys?.openalex_email ?? ""}
@@ -371,11 +465,11 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1">Scopus API Key</label>
+            <label className="block text-sm text-text-secondary mb-1">Scopus API Key (optional, needs institutional access)</label>
             <input
               type="password"
-              value={form?.api_keys?.scopus_key ?? ""}
-              onChange={(e) => updateField(["api_keys", "scopus_key"], e.target.value)}
+              value={form?.api_keys?.scopus ?? ""}
+              onChange={(e) => updateField(["api_keys", "scopus"], e.target.value)}
               className="glass-input w-full"
               placeholder="Enter Scopus API key"
             />

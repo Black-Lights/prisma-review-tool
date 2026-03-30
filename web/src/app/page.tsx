@@ -5,13 +5,14 @@ import { CheckCircle2, Circle, Play, RefreshCw } from "lucide-react";
 import StatCard from "@/components/StatCard";
 import GlassCard from "@/components/GlassCard";
 import { fetchStats, generateReport, runPipelineStep } from "@/lib/api";
+import Modal from "@/components/Modal";
 import { useState } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const PIPELINE_STEPS = [
   { key: "search", label: "Search Databases", statPath: "search.total" },
-  { key: "dedup", label: "Deduplicate", statPath: "dedup.unique" },
+  { key: "dedup", label: "Deduplicate", statPath: "dedup.remaining" },
   { key: "screen", label: "Keyword Screening", statPath: "screen.included" },
   { key: "eligibility", label: "AI Eligibility", statPath: "eligibility.included" },
   { key: "export", label: "Export & Download", statPath: null },
@@ -47,7 +48,17 @@ export default function DashboardPage() {
     }
   };
 
-  const handleRunAll = async () => {
+  const [showRunAllModal, setShowRunAllModal] = useState(false);
+
+  const handleRunAllClick = () => {
+    if (recordsFound > 0) {
+      setShowRunAllModal(true);
+    } else {
+      executeRunAll();
+    }
+  };
+
+  const executeRunAll = async () => {
     setRunningAll(true);
     try {
       await runPipelineStep("run-all");
@@ -58,7 +69,7 @@ export default function DashboardPage() {
   };
 
   const recordsFound = stats?.search?.total ?? 0;
-  const afterDedup = stats?.dedup?.unique ?? 0;
+  const afterDedup = stats?.dedup?.remaining ?? 0;
   const firstPassIncluded = stats?.screen?.included ?? 0;
   const finalEligible = stats?.eligibility?.included ?? 0;
 
@@ -144,7 +155,7 @@ export default function DashboardPage() {
 
             {/* Run All button */}
             <button
-              onClick={handleRunAll}
+              onClick={handleRunAllClick}
               disabled={runningAll}
               className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-accent-green/15 text-accent-green border border-accent-green/20 hover:bg-accent-green/25 disabled:opacity-50 transition-colors cursor-pointer"
             >
@@ -154,6 +165,16 @@ export default function DashboardPage() {
           </GlassCard>
         </div>
       </div>
+      <Modal
+        open={showRunAllModal}
+        onClose={() => setShowRunAllModal(false)}
+        onConfirm={executeRunAll}
+        variant="danger"
+        title="Re-run entire pipeline?"
+        description={"This will re-run search, deduplication, and screening from scratch.\n\nYour existing screening and eligibility decisions will be overwritten. This may take several minutes."}
+        confirmLabel="Yes, re-run pipeline"
+        cancelLabel="Cancel"
+      />
     </div>
   );
 }
