@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Providers } from "./providers";
 import { Sidebar } from "@/components/Sidebar";
+import ScrollRestoration from "@/components/ScrollRestoration";
 
 export const metadata: Metadata = {
   title: "PRISMA Review Tool",
@@ -25,7 +26,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <div className="flex h-full">
             <Sidebar />
-            <main className="flex-1 ml-64 overflow-y-auto p-8">{children}</main>
+            <main className="flex-1 ml-64 overflow-y-auto p-8">
+              <ScrollRestoration />
+              {children}
+            </main>
           </div>
         </Providers>
       </body>
