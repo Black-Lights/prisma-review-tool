@@ -27,6 +27,7 @@ export default function DownloadsPage() {
   const [error, setError] = useState<string | null>(null);
   const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
   const [previewFile, setPreviewFile] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   const { data: log } = useQuery({
     queryKey: ["download-log"],
@@ -44,6 +45,22 @@ export default function DownloadsPage() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const openPreview = async (filename: string) => {
+    // Revoke old blob URL
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewFile(filename);
+    // Fetch PDF as blob to avoid cross-origin download issues
+    const res = await fetch(`${API_URL}/api/papers/downloads/${encodeURIComponent(filename)}`);
+    const blob = await res.blob();
+    setPreviewUrl(URL.createObjectURL(blob));
+  };
+
+  const closePreview = () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewFile(null);
+    setPreviewUrl(null);
   };
 
   const hasDownloads = (log?.total ?? 0) > 0;
@@ -118,28 +135,36 @@ export default function DownloadsPage() {
           <div className="flex items-center justify-between px-4 py-2 border-b border-border-glass">
             <span className="text-sm text-text-primary font-medium truncate">{previewFile}</span>
             <div className="flex items-center gap-2">
-              <a
-                href={`${API_URL}/api/papers/downloads/${encodeURIComponent(previewFile)}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-primary hover:underline flex items-center gap-1"
-              >
-                Open in new tab <ExternalLink size={12} />
-              </a>
+              {previewUrl && (
+                <a
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-primary hover:underline flex items-center gap-1"
+                >
+                  Open in new tab <ExternalLink size={12} />
+                </a>
+              )}
               <button
-                onClick={() => setPreviewFile(null)}
+                onClick={closePreview}
                 className="text-xs text-text-muted hover:text-text-primary px-2 py-1 cursor-pointer"
               >
                 Close
               </button>
             </div>
           </div>
-          <iframe
-            src={`${API_URL}/api/papers/downloads/${encodeURIComponent(previewFile)}`}
-            className="w-full bg-white"
-            style={{ height: "70vh" }}
-            title="PDF Preview"
-          />
+          {previewUrl ? (
+            <iframe
+              src={previewUrl}
+              className="w-full bg-white"
+              style={{ height: "70vh" }}
+              title="PDF Preview"
+            />
+          ) : (
+            <div className="flex items-center justify-center py-12 text-text-muted text-sm">
+              Loading PDF...
+            </div>
+          )}
         </GlassCard>
       )}
 
@@ -200,19 +225,11 @@ export default function DownloadsPage() {
                       {isAvailable(paper.status) && paper.file && (
                         <div className="flex items-center justify-end gap-2">
                           <button
-                            onClick={() => setPreviewFile(paper.file)}
+                            onClick={() => openPreview(paper.file!)}
                             className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
                           >
                             <Eye size={13} /> View
                           </button>
-                          <a
-                            href={`${API_URL}/api/papers/downloads/${encodeURIComponent(paper.file)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1 text-xs text-accent-green hover:underline"
-                          >
-                            <FileText size={13} /> Open
-                          </a>
                         </div>
                       )}
                     </td>
