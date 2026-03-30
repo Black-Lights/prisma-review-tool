@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useState, useCallback } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
@@ -28,24 +28,22 @@ export default function ScreeningPage() {
 function ScreeningContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
-  const router = useRouter();
 
-  // Read state from URL params (survives back navigation)
-  const filter = (searchParams.get("filter") || "maybe") as FilterType;
-  const batchSize = parseInt(searchParams.get("batch") || "20", 10);
+  // State initialized from URL params (for back-navigation restore)
+  const [filter, setFilterRaw] = useState<FilterType>(() => (searchParams.get("filter") || "maybe") as FilterType);
+  const [batchSize, setBatchSizeRaw] = useState(() => parseInt(searchParams.get("batch") || "20", 10));
 
-  const updateParams = useCallback((updates: Record<string, string>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if ((key === "filter" && value === "maybe") || (key === "batch" && value === "20")) params.delete(key);
-      else params.set(key, value);
-    }
+  // Sync state to URL for back-navigation persistence
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (filter !== "maybe") params.set("filter", filter);
+    if (batchSize !== 20) params.set("batch", String(batchSize));
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-  }, [searchParams, router]);
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [filter, batchSize]);
 
-  const setFilter = (v: FilterType) => { updateParams({ filter: v, batch: "20" }); };
-  const setBatchSize = (fn: (prev: number) => number) => { updateParams({ batch: String(fn(batchSize)) }); };
+  const setFilter = (v: FilterType) => { setFilterRaw(v); setBatchSizeRaw(20); };
+  const setBatchSize = (fn: (prev: number) => number) => setBatchSizeRaw(fn);
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[] | null>(null);

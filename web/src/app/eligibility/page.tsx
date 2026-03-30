@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useCallback } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import {
   fetchEligibilityPapers,
   eligibilityScreen,
@@ -21,16 +21,14 @@ export default function EligibilityPage() {
 function EligibilityContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const batchSize = parseInt(searchParams.get("batch") || "20", 10);
 
-  const setBatchSize = useCallback((fn: (prev: number) => number) => {
-    const params = new URLSearchParams(searchParams.toString());
-    const newBatch = fn(batchSize);
-    if (newBatch === 20) params.delete("batch");
-    else params.set("batch", String(newBatch));
+  const [batchSize, setBatchSizeRaw] = useState(() => parseInt(searchParams.get("batch") || "20", 10));
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (batchSize !== 20) params.set("batch", String(batchSize));
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
   }, [searchParams, batchSize]);
 
   const { data, isLoading } = useQuery<EligibilityListResponse>({
@@ -61,7 +59,7 @@ function EligibilityContent() {
   const progress = total > 0 ? Math.min((screened / total) * 100, 100) : 0;
 
   const handleLoadMore = () => {
-    setBatchSize((prev) => prev + 20);
+    setBatchSizeRaw((prev) => prev + 20);
   };
 
   return (

@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useState, useCallback } from "react";
+import { Suspense, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { fetchAllPapers, searchPapers } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import Link from "next/link";
@@ -32,32 +32,28 @@ export default function PapersPage() {
 
 function PapersContent() {
   const searchParams = useSearchParams();
-  const router = useRouter();
   const perPage = 25;
 
-  // Read state from URL params (survives back navigation)
-  const page = parseInt(searchParams.get("page") || "1", 10);
-  const decisionFilter = searchParams.get("decision") || "all";
-  const sourceFilter = searchParams.get("source") || "all";
+  // State initialized from URL params (for back-navigation restore)
+  const [page, setPageRaw] = useState(() => parseInt(searchParams.get("page") || "1", 10));
+  const [decisionFilter, setDecisionFilterRaw] = useState(() => searchParams.get("decision") || "all");
+  const [sourceFilter, setSourceFilterRaw] = useState(() => searchParams.get("source") || "all");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const updateParams = useCallback((updates: Record<string, string>) => {
-    const params = new URLSearchParams(searchParams.toString());
-    for (const [key, value] of Object.entries(updates)) {
-      if (value === "all" || value === "1") params.delete(key);
-      else params.set(key, value);
-    }
+  // Sync state to URL for back-navigation persistence
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (page > 1) params.set("page", String(page));
+    if (decisionFilter !== "all") params.set("decision", decisionFilter);
+    if (sourceFilter !== "all") params.set("source", sourceFilter);
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-  }, [searchParams, router]);
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [page, decisionFilter, sourceFilter]);
 
-  const setPage = (p: number | ((prev: number) => number)) => {
-    const newPage = typeof p === "function" ? p(page) : p;
-    updateParams({ page: String(newPage) });
-  };
-  const setDecisionFilter = (v: string) => { updateParams({ decision: v, page: "1" }); };
-  const setSourceFilter = (v: string) => { updateParams({ source: v, page: "1" }); };
+  const setPage = (p: number | ((prev: number) => number)) => setPageRaw(p);
+  const setDecisionFilter = (v: string) => { setDecisionFilterRaw(v); setPageRaw(1); };
+  const setSourceFilter = (v: string) => { setSourceFilterRaw(v); setPageRaw(1); };
 
   // Paginated papers from API
   const { data, isLoading, isPlaceholderData } = useQuery({
