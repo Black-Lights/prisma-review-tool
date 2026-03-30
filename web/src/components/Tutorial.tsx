@@ -113,6 +113,24 @@ function TutorialOverlay() {
     return () => { clearTimeout(timer); cancelAnimationFrame(rafRef.current); };
   }, [isActive, step, updateRect]);
 
+  // Boost z-index of highlighted element so it appears above the overlay
+  useEffect(() => {
+    if (!isActive || !step?.target) return;
+    const el = document.querySelector(step.target) as HTMLElement | null;
+    if (!el) return;
+
+    const origPosition = el.style.position;
+    const origZIndex = el.style.zIndex;
+
+    el.style.position = "relative";
+    el.style.zIndex = "201";
+
+    return () => {
+      el.style.position = origPosition;
+      el.style.zIndex = origZIndex;
+    };
+  }, [isActive, step]);
+
   // Reposition on resize
   useEffect(() => {
     if (!isActive) return;
@@ -144,18 +162,19 @@ function TutorialOverlay() {
   return createPortal(
     <div className="fixed inset-0 z-[200]" style={{ pointerEvents: "auto" }}>
       {/* Dark overlay */}
-      <div className="absolute inset-0 bg-black/70 transition-opacity duration-200" onClick={skip} />
+      <div className="absolute inset-0 bg-black/80 transition-opacity duration-200" onClick={skip} />
 
-      {/* Cutout highlight */}
+      {/* Cutout highlight with bright glow border */}
       {elRect && (
         <div
-          className="absolute rounded-lg transition-all duration-200 ease-out"
+          className="absolute rounded-xl transition-all duration-200 ease-out"
           style={{
             top: elRect.top - PAD,
             left: elRect.left - PAD,
             width: elRect.width + PAD * 2,
             height: elRect.height + PAD * 2,
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.7)",
+            boxShadow: `0 0 0 9999px rgba(0,0,0,0.8), 0 0 0 3px rgba(125,211,252,0.7), 0 0 20px rgba(125,211,252,0.3), 0 0 40px rgba(125,211,252,0.1)`,
+            background: "transparent",
             pointerEvents: "none",
             zIndex: 201,
           }}
