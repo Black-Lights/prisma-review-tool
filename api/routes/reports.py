@@ -83,7 +83,7 @@ def list_downloads(config: Config = Depends(get_config)):
     entries = json.loads(log_path.read_text())
     return {
         "total": len(entries),
-        "downloaded": sum(1 for e in entries if e.get("status") == "downloaded"),
+        "downloaded": sum(1 for e in entries if e.get("status") in ("downloaded", "exists")),
         "no_oa": sum(1 for e in entries if e.get("status") == "no_oa"),
         "failed": sum(1 for e in entries if e.get("status") == "failed"),
         "papers": entries,
@@ -100,7 +100,13 @@ def serve_pdf(filename: str, config: Config = Depends(get_config)):
     if not pdf_path.exists() or not safe_name.endswith(".pdf"):
         raise HTTPException(status_code=404, detail="PDF not found")
 
-    return FileResponse(pdf_path, media_type="application/pdf")
+    from starlette.responses import Response
+    content = pdf_path.read_bytes()
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 @router.post("/papers/download")
@@ -117,9 +123,17 @@ def download_pdfs(config: Config = Depends(get_config)):
     pdf_dir = config.output_dir / "05_pdfs"
     stats = download_papers(papers, pdf_dir, email=config.openalex_email)
 
+    # Enrich results with DOI (download_papers doesn't include it)
+    paper_map = {p.id: p for p in papers}
+    results = stats.get("results", [])
+    for entry in results:
+        p = paper_map.get(entry.get("id"))
+        if p:
+            entry["doi"] = p.doi or ""
+
     # Save download log so the Downloads page can list papers
     log_path = pdf_dir / "_download_log.json"
-    log_path.write_text(json.dumps(stats.get("results", []), indent=2))
+    log_path.write_text(json.dumps(results, indent=2))
 
     return {
         "status": "ok",

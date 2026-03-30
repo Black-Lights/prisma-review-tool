@@ -67,7 +67,7 @@ export interface DownloadEntry {
   id: string;
   title: string;
   file: string | null;
-  status: "downloaded" | "no_oa" | "failed";
+  status: "downloaded" | "exists" | "no_oa" | "failed";
   doi: string | null;
 }
 

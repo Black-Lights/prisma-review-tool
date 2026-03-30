@@ -50,12 +50,15 @@ export default function DownloadsPage() {
 
   const filteredPapers = (log?.papers ?? []).filter((p) => {
     if (viewFilter === "all") return true;
+    if (viewFilter === "downloaded") return p.status === "downloaded" || p.status === "exists";
     return p.status === viewFilter;
   });
 
+  const isAvailable = (status: string) => status === "downloaded" || status === "exists";
+
   const statusIcon = (status: string) => {
+    if (isAvailable(status)) return <CheckCircle size={14} className="text-accent-green" />;
     switch (status) {
-      case "downloaded": return <CheckCircle size={14} className="text-accent-green" />;
       case "no_oa": return <AlertTriangle size={14} className="text-accent-amber" />;
       case "failed": return <XCircle size={14} className="text-accent-red" />;
       default: return null;
@@ -63,8 +66,8 @@ export default function DownloadsPage() {
   };
 
   const statusLabel = (status: string) => {
+    if (isAvailable(status)) return "Downloaded";
     switch (status) {
-      case "downloaded": return "Downloaded";
       case "no_oa": return "No Open Access";
       case "failed": return "Failed";
       default: return status;
@@ -194,7 +197,7 @@ export default function DownloadsPage() {
                       ) : "—"}
                     </td>
                     <td className="px-4 py-2.5 text-right">
-                      {paper.status === "downloaded" && paper.file && (
+                      {isAvailable(paper.status) && paper.file && (
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => setPreviewFile(paper.file)}
