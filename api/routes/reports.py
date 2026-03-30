@@ -117,6 +117,10 @@ def download_pdfs(config: Config = Depends(get_config)):
     pdf_dir = config.output_dir / "05_pdfs"
     stats = download_papers(papers, pdf_dir, email=config.openalex_email)
 
+    # Save download log so the Downloads page can list papers
+    log_path = pdf_dir / "_download_log.json"
+    log_path.write_text(json.dumps(stats.get("results", []), indent=2))
+
     return {
         "status": "ok",
         "source": source,
