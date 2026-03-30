@@ -222,8 +222,9 @@ If you use this tool in your research, please cite:
 ## Requirements
 
 - Python 3.10+
-- No API keys needed for basic usage (arXiv, OpenAlex, Semantic Scholar are free)
-- Optional: Scopus API key for broader coverage
+- No API keys needed for basic usage (OpenAlex is free and recommended)
+- Optional: Scopus API key for broader coverage (get from [dev.elsevier.com](https://dev.elsevier.com), requires institutional access)
+- Optional: arXiv and Semantic Scholar (free but have aggressive rate limits)
 - Optional: Claude Code subscription for AI-assisted screening via MCP
 
 ## Contributing

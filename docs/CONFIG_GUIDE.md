@@ -69,7 +69,9 @@ sources:
   # - scopus            # Best for: High-quality indexed journals (needs API key)
 ```
 
-All free sources are enabled by default. Add Scopus if you have institutional access.
+OpenAlex is recommended as the primary source (most reliable, broadest coverage). Add Scopus if you have institutional access — it provides the best metadata quality.
+
+**Scopus setup**: Get an API key from [dev.elsevier.com](https://dev.elsevier.com), add it under `api_keys.scopus` in your config. Requires institutional network access (VPN or campus IP). Usage must comply with the Elsevier API Service Agreement (academic research only).
 
 ## Fuzzy Dedup Threshold
 

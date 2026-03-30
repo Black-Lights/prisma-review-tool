@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-03-30
+
+### Added
+- **Scopus search implementation**: New `scopus_search.py` module using the Elsevier Scopus Search API
+  - Searches via TITLE-ABS-KEY with full Boolean query support
+  - Handles pagination (25 results per page), rate limiting (429 retry with backoff)
+  - Extracts title, authors, abstract, year, DOI, venue, keywords, Scopus ID
+  - Gracefully skips when no API key is configured
+  - API key from https://dev.elsevier.com (requires institutional access)
+  - Uses raw `requests` — no additional dependencies needed
+
+### Changed
+- `runner.py` now routes to `search_scopus` when "scopus" is in the sources list
+- `config.template.yaml` updated with Scopus API key instructions
+
 ## [1.2.0] - 2026-03-30
 
 ### Added

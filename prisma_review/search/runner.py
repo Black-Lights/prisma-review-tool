@@ -7,6 +7,7 @@ from ..models import Paper
 from .arxiv_search import search_arxiv
 from .openalex_search import search_openalex
 from .semantic_search import search_semantic_scholar
+from .scopus_search import search_scopus
 
 
 def run_all_searches(config: Config) -> dict[str, list[Paper]]:
@@ -34,6 +35,9 @@ def run_all_searches(config: Config) -> dict[str, list[Paper]]:
                                              config.max_results, config.openalex_email)
                 elif source == "semantic_scholar":
                     papers = search_semantic_scholar(query_terms, config.date_start, config.date_end, config.max_results)
+                elif source == "scopus":
+                    papers = search_scopus(query_terms, config.scopus_key,
+                                           config.date_start, config.date_end, config.max_results)
                 else:
                     print(f"unknown source, skipping")
                     continue

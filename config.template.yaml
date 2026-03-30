@@ -16,7 +16,10 @@ project:
 
 # --- API Keys (all optional) ---
 api_keys:
-  scopus: ""              # Get from https://dev.elsevier.com (needs institutional access)
+  # Scopus: Register at https://dev.elsevier.com → Create API Key
+  # Requires institutional access (university VPN or IP range)
+  # Usage must comply with Elsevier API Service Agreement (academic research only)
+  scopus: ""
   openalex_email: ""      # Your email for faster OpenAlex responses (free, recommended)
 
 # --- Search Configuration ---
