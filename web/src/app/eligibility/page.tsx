@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import {
   fetchEligibilityPapers,
   eligibilityScreen,
@@ -21,6 +21,7 @@ export default function EligibilityPage() {
 function EligibilityContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const batchSize = parseInt(searchParams.get("batch") || "20", 10);
 
   const setBatchSize = useCallback((fn: (prev: number) => number) => {
@@ -29,7 +30,7 @@ function EligibilityContent() {
     if (newBatch === 20) params.delete("batch");
     else params.set("batch", String(newBatch));
     const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
   }, [searchParams, batchSize]);
 
   const { data, isLoading } = useQuery<EligibilityListResponse>({

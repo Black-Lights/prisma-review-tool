@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
-import { generateReport } from "@/lib/api";
+import { useRef, useState } from "react";
+import { toPng } from "html-to-image";
+import { Download } from "lucide-react";
 import type { StatsResponse } from "@/lib/api";
 
 interface Props {
@@ -15,42 +15,7 @@ function n(val: number | undefined): string {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-function DownloadActions() {
-  const [regenerating, setRegenerating] = useState(false);
-  const [ready, setReady] = useState(false);
-
-  const handleRegenerate = async () => {
-    setRegenerating(true);
-    setReady(false);
-    try {
-      await generateReport();
-      setReady(true);
-    } finally {
-      setRegenerating(false);
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={handleRegenerate}
-        disabled={regenerating}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-dim text-primary border border-primary/20 hover:bg-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
-      >
-        <RefreshCw size={16} className={regenerating ? "animate-spin" : ""} />
-        {regenerating ? "Regenerating..." : "Regenerate PNG"}
-      </button>
-      <button
-        onClick={() => window.open(`${API_URL}/api/reports/prisma-flow`, "_blank")}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/20 hover:bg-accent-green/25 transition-colors cursor-pointer"
-      >
-        <Download size={16} />
-        Download PNG
-      </button>
-      {ready && <span className="text-xs text-accent-green">PNG updated</span>}
-    </div>
-  );
-}
+/* intentionally empty — DownloadActions removed, download button inline */
 
 /* ── Tiny SVG arrow helpers ── */
 
@@ -75,6 +40,23 @@ function ArrowDown() {
 }
 
 export default function PrismaFlowDiagram({ stats }: Props) {
+  const diagramRef = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+
+  const handleDownloadPng = async () => {
+    if (!diagramRef.current) return;
+    setDownloading(true);
+    try {
+      const dataUrl = await toPng(diagramRef.current, { pixelRatio: 3, backgroundColor: "#ffffff" });
+      const link = document.createElement("a");
+      link.download = "prisma_2020_flow_diagram.png";
+      link.href = dataUrl;
+      link.click();
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   const search = stats?.search ?? {};
   const dedup = stats?.dedup ?? {};
   const screen = stats?.screen ?? {};
@@ -104,7 +86,7 @@ export default function PrismaFlowDiagram({ stats }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-lg overflow-x-auto" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+      <div ref={diagramRef} className="bg-white rounded-lg overflow-x-auto" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
         {/* Title */}
         <div className="text-center text-[11px] text-gray-600 font-medium pt-4 pb-2 px-4">
           PRISMA 2020 flow diagram for new systematic reviews which included searches of databases and registers only
@@ -252,8 +234,15 @@ export default function PrismaFlowDiagram({ stats }: Props) {
         </div>
       </div>
 
-      {/* Actions */}
-      <DownloadActions />
+      {/* Download */}
+      <button
+        onClick={handleDownloadPng}
+        disabled={downloading}
+        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-dim text-primary border border-primary/20 hover:bg-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
+      >
+        <Download size={16} />
+        {downloading ? "Saving..." : "Download PNG"}
+      </button>
     </div>
   );
 }

@@ -49,8 +49,8 @@ function PapersContent() {
       else params.set(key, value);
     }
     const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [searchParams]);
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+  }, [searchParams, router]);
 
   const setPage = (p: number | ((prev: number) => number)) => {
     const newPage = typeof p === "function" ? p(page) : p;

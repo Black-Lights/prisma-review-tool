@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
@@ -28,6 +28,7 @@ export default function ScreeningPage() {
 function ScreeningContent() {
   const queryClient = useQueryClient();
   const searchParams = useSearchParams();
+  const router = useRouter();
 
   // Read state from URL params (survives back navigation)
   const filter = (searchParams.get("filter") || "maybe") as FilterType;
@@ -40,8 +41,8 @@ function ScreeningContent() {
       else params.set(key, value);
     }
     const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [searchParams]);
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+  }, [searchParams, router]);
 
   const setFilter = (v: FilterType) => { updateParams({ filter: v, batch: "20" }); };
   const setBatchSize = (fn: (prev: number) => number) => { updateParams({ batch: String(fn(batchSize)) }); };
