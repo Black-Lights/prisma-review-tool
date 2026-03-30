@@ -61,6 +61,23 @@ export const stopPipeline = () =>
 // Reports
 export const generateReport = () => request<any>("/api/reports/generate", { method: "POST" });
 export const downloadPapers = () => request<any>("/api/papers/download", { method: "POST" });
+export const fetchDownloadLog = () => request<DownloadLogResponse>("/api/papers/downloads");
+
+export interface DownloadEntry {
+  id: string;
+  title: string;
+  file: string | null;
+  status: "downloaded" | "no_oa" | "failed";
+  doi: string | null;
+}
+
+export interface DownloadLogResponse {
+  total: number;
+  downloaded: number;
+  no_oa: number;
+  failed: number;
+  papers: DownloadEntry[];
+}
 
 // Config
 export const fetchConfig = () => request<any>("/api/config");

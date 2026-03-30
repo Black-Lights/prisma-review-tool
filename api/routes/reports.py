@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from prisma_review.config import Config
@@ -68,6 +69,38 @@ def export_file(format: str, source: str = "eligible", config: Config = Depends(
 
     media = "application/x-bibtex" if format == "bib" else "text/csv"
     return FileResponse(file_path, media_type=media, filename=file_path.name)
+
+
+@router.get("/papers/downloads")
+def list_downloads(config: Config = Depends(get_config)):
+    """List all downloaded PDFs from the download log."""
+    pdf_dir = config.output_dir / "05_pdfs"
+    log_path = pdf_dir / "_download_log.json"
+
+    if not log_path.exists():
+        return {"total": 0, "papers": []}
+
+    entries = json.loads(log_path.read_text())
+    return {
+        "total": len(entries),
+        "downloaded": sum(1 for e in entries if e.get("status") == "downloaded"),
+        "no_oa": sum(1 for e in entries if e.get("status") == "no_oa"),
+        "failed": sum(1 for e in entries if e.get("status") == "failed"),
+        "papers": entries,
+    }
+
+
+@router.get("/papers/downloads/{filename}")
+def serve_pdf(filename: str, config: Config = Depends(get_config)):
+    """Serve a downloaded PDF file."""
+    # Sanitize filename to prevent path traversal
+    safe_name = Path(filename).name
+    pdf_path = config.output_dir / "05_pdfs" / safe_name
+
+    if not pdf_path.exists() or not safe_name.endswith(".pdf"):
+        raise HTTPException(status_code=404, detail="PDF not found")
+
+    return FileResponse(pdf_path, media_type="application/pdf", filename=safe_name)
 
 
 @router.post("/papers/download")

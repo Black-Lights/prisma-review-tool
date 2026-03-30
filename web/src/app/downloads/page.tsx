@@ -1,36 +1,44 @@
 "use client";
 
 import { useState } from "react";
-import { downloadPapers } from "@/lib/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { downloadPapers, fetchDownloadLog, type DownloadEntry } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import StatCard from "@/components/StatCard";
 import {
   Download,
   Loader2,
   CheckCircle,
-  AlertTriangle,
   XCircle,
   Info,
+  FileText,
+  ExternalLink,
+  Eye,
+  AlertTriangle,
 } from "lucide-react";
 
-interface DownloadResult {
-  downloaded?: number;
-  no_open_access?: number;
-  failed?: number;
-}
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+type ViewFilter = "all" | "downloaded" | "no_oa" | "failed";
 
 export default function DownloadsPage() {
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState<DownloadResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+
+  const { data: log } = useQuery({
+    queryKey: ["download-log"],
+    queryFn: fetchDownloadLog,
+  });
 
   const handleDownload = async () => {
     setIsLoading(true);
     setError(null);
-    setResult(null);
     try {
-      const res = await downloadPapers();
-      setResult(res);
+      await downloadPapers();
+      queryClient.invalidateQueries({ queryKey: ["download-log"] });
     } catch (e: any) {
       setError(e.message || "Download failed");
     } finally {
@@ -38,84 +46,196 @@ export default function DownloadsPage() {
     }
   };
 
+  const hasDownloads = (log?.total ?? 0) > 0;
+
+  const filteredPapers = (log?.papers ?? []).filter((p) => {
+    if (viewFilter === "all") return true;
+    return p.status === viewFilter;
+  });
+
+  const statusIcon = (status: string) => {
+    switch (status) {
+      case "downloaded": return <CheckCircle size={14} className="text-accent-green" />;
+      case "no_oa": return <AlertTriangle size={14} className="text-accent-amber" />;
+      case "failed": return <XCircle size={14} className="text-accent-red" />;
+      default: return null;
+    }
+  };
+
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case "downloaded": return "Downloaded";
+      case "no_oa": return "No Open Access";
+      case "failed": return "Failed";
+      default: return status;
+    }
+  };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Download className="w-7 h-7 text-primary" />
         <h1 className="text-2xl font-bold text-text-primary">Downloads</h1>
       </div>
 
-      {/* Action Card */}
-      <GlassCard className="text-center py-10">
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-16 h-16 rounded-full bg-primary-dim flex items-center justify-center">
-            <Download className="w-8 h-8 text-primary" />
-          </div>
-          <h2 className="text-xl font-semibold text-text-primary">
-            Download Open Access PDFs
-          </h2>
-          <p className="text-text-secondary max-w-lg">
-            Automatically download PDFs for all eligible papers that have open access versions
-            available. Papers are saved to the project downloads folder.
-          </p>
-          <button
-            onClick={handleDownload}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-8 py-3 rounded-lg bg-primary text-bg-base font-semibold text-lg hover:opacity-90 disabled:opacity-50 mt-2"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Downloading...
-              </>
-            ) : (
-              <>
-                <Download className="w-5 h-5" />
-                Start Download
-              </>
-            )}
-          </button>
-        </div>
-      </GlassCard>
+      {/* Action + Stats row */}
+      <div className="flex flex-wrap items-center gap-4">
+        <button
+          onClick={handleDownload}
+          disabled={isLoading}
+          className="flex items-center gap-2 px-6 py-2.5 rounded-lg bg-primary text-bg-base font-semibold hover:opacity-90 disabled:opacity-50 cursor-pointer"
+        >
+          {isLoading ? (
+            <><Loader2 className="w-4 h-4 animate-spin" /> Downloading...</>
+          ) : (
+            <><Download className="w-4 h-4" /> {hasDownloads ? "Re-download" : "Start Download"}</>
+          )}
+        </button>
 
-      {/* Error */}
+        {hasDownloads && (
+          <div className="flex gap-3 text-sm">
+            <span className="text-accent-green">{log?.downloaded ?? 0} downloaded</span>
+            <span className="text-text-muted">|</span>
+            <span className="text-accent-amber">{log?.no_oa ?? 0} no OA</span>
+            <span className="text-text-muted">|</span>
+            <span className="text-accent-red">{log?.failed ?? 0} failed</span>
+          </div>
+        )}
+      </div>
+
       {error && (
         <div className="glass p-4 border-l-4 border-l-accent-red text-accent-red flex items-center gap-2">
-          <XCircle className="w-5 h-5 flex-shrink-0" />
-          <span>{error}</span>
+          <XCircle className="w-5 h-5 shrink-0" /> {error}
         </div>
       )}
 
-      {/* Results */}
-      {result && (
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-accent-green" />
-            Download Complete
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatCard
-              label="Downloaded"
-              value={result.downloaded ?? 0}
-              color="green"
-            />
-            <StatCard
-              label="No Open Access"
-              value={result.no_open_access ?? 0}
-              color="amber"
-            />
-            <StatCard
-              label="Failed"
-              value={result.failed ?? 0}
-              color="red"
-            />
+      {/* PDF Viewer */}
+      {previewFile && (
+        <GlassCard className="!p-0 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-2 border-b border-border-glass">
+            <span className="text-sm text-text-primary font-medium truncate">{previewFile}</span>
+            <div className="flex items-center gap-2">
+              <a
+                href={`${API_URL}/api/papers/downloads/${encodeURIComponent(previewFile)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-primary hover:underline flex items-center gap-1"
+              >
+                Open in new tab <ExternalLink size={12} />
+              </a>
+              <button
+                onClick={() => setPreviewFile(null)}
+                className="text-xs text-text-muted hover:text-text-primary px-2 py-1 cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
-        </div>
+          <iframe
+            src={`${API_URL}/api/papers/downloads/${encodeURIComponent(previewFile)}`}
+            className="w-full bg-white"
+            style={{ height: "70vh" }}
+            title="PDF Preview"
+          />
+        </GlassCard>
       )}
 
-      {/* Info note */}
+      {/* Papers list */}
+      {hasDownloads && (
+        <>
+          {/* Filter pills */}
+          <div className="flex gap-2">
+            {(["all", "downloaded", "no_oa", "failed"] as ViewFilter[]).map((f) => (
+              <button
+                key={f}
+                onClick={() => setViewFilter(f)}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium border transition-colors cursor-pointer ${
+                  viewFilter === f
+                    ? "bg-primary/15 text-primary border-primary/30"
+                    : "bg-bg-glass text-text-secondary border-border-glass hover:border-border-glass-hover"
+                }`}
+              >
+                {f === "all" ? `All (${log?.total})` :
+                 f === "downloaded" ? `Downloaded (${log?.downloaded})` :
+                 f === "no_oa" ? `No OA (${log?.no_oa})` :
+                 `Failed (${log?.failed})`}
+              </button>
+            ))}
+          </div>
+
+          {/* Table */}
+          <GlassCard className="!p-0 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border-glass text-left text-text-muted">
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Title</th>
+                  <th className="px-4 py-3 font-medium">DOI</th>
+                  <th className="px-4 py-3 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredPapers.map((paper, i) => (
+                  <tr key={paper.id} className={`border-b border-border-glass/50 hover:bg-bg-glass/40 ${i % 2 === 1 ? "bg-bg-glass/20" : ""}`}>
+                    <td className="px-4 py-2.5">
+                      <span className="flex items-center gap-1.5 text-xs">
+                        {statusIcon(paper.status)}
+                        {statusLabel(paper.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 max-w-md">
+                      <span className="text-text-primary line-clamp-1">{paper.title}</span>
+                    </td>
+                    <td className="px-4 py-2.5 text-text-muted text-xs">
+                      {paper.doi ? (
+                        <a href={`https://doi.org/${paper.doi}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                          {paper.doi}
+                        </a>
+                      ) : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {paper.status === "downloaded" && paper.file && (
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => setPreviewFile(paper.file)}
+                            className="flex items-center gap-1 text-xs text-primary hover:underline cursor-pointer"
+                          >
+                            <Eye size={13} /> View
+                          </button>
+                          <a
+                            href={`${API_URL}/api/papers/downloads/${encodeURIComponent(paper.file)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 text-xs text-accent-green hover:underline"
+                          >
+                            <FileText size={13} /> Open
+                          </a>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </GlassCard>
+        </>
+      )}
+
+      {!hasDownloads && (
+        <GlassCard className="text-center py-10">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-14 h-14 rounded-full bg-primary-dim flex items-center justify-center">
+              <Download className="w-7 h-7 text-primary" />
+            </div>
+            <p className="text-text-secondary max-w-lg">
+              Download open access PDFs for eligible papers. Click "Start Download" to begin.
+            </p>
+          </div>
+        </GlassCard>
+      )}
+
       <div className="flex items-start gap-3 glass p-4 border border-border-glass">
-        <Info className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+        <Info className="w-5 h-5 text-primary shrink-0 mt-0.5" />
         <p className="text-sm text-text-secondary">
           Papers without open access can be downloaded via your institutional library.
           Check your university portal for access to subscription-based journals.
