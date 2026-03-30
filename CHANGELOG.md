@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-30
+
+### Added
+- **Background pipeline execution**: Pipeline (search → dedup → screen) now runs in a background thread instead of blocking the HTTP request
+  - New REST endpoints: `POST /api/pipeline/start`, `GET /api/pipeline/progress`, `POST /api/pipeline/stop`
+  - Pipeline state persisted to `review_state.json` under `pipeline` key — survives server restarts
+  - Cancellation support: stop after current step, preserving completed results
+  - Live progress polling from the web dashboard (2-second interval)
+- **4 new MCP tools** for pipeline session management (15 total):
+  - `start_pipeline` — start the full pipeline in background
+  - `get_pipeline_progress` — check current status, step, warnings
+  - `stop_pipeline` — request cancellation
+  - `start_pipeline_step` — run a single step (search/dedup/screen)
+- **Rate limit handling**: Search step detects zero-result sources (e.g., Semantic Scholar rate limiting) and reports them as warnings instead of failing the pipeline
+- **Warnings field**: Pipeline progress includes a `warnings` list for non-fatal issues (rate limits, partial results)
+- **Session architecture doc**: `docs/SESSION_SYSTEM.md` explaining background execution, state management, MCP/Web UI sharing
+
+### Changed
+- Dashboard "Run All" button now launches background pipeline with live progress bar
+- PipelineProgress component shows elapsed time, stop button, and warning indicators
+- Modal component now awaits async `onConfirm` before closing (fixes race condition)
+- MCP server tools count increased from 11 to 15
+
 ## [1.1.0] - 2026-03-29
 
 ### Added

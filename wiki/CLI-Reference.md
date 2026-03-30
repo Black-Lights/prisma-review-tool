@@ -146,6 +146,24 @@ Equivalent to running in sequence: `search` → `dedup` → `screen-rules` → `
 
 ---
 
+### REST API / Background Execution
+
+The same pipeline steps are available as REST API endpoints via the FastAPI backend:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/pipeline/start` | POST | Start full pipeline in background thread |
+| `/api/pipeline/start/{step}` | POST | Start a single step in background |
+| `/api/pipeline/progress` | GET | Get current progress (fast, no disk I/O) |
+| `/api/pipeline/stop` | POST | Cancel after current step |
+| `/api/pipeline/status` | GET | Get pipeline state from disk |
+
+Start the API server: `uvicorn api.main:app --port 8001`
+
+See [Session System](../docs/SESSION_SYSTEM.md) for architecture details.
+
+---
+
 ## Global Options
 
 | Option | Description | Default |

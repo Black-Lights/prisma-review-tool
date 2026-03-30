@@ -48,6 +48,7 @@ class SessionManager:
         self.started_at: str | None = None
         self.finished_at: str | None = None
         self.completed_steps: list[str] = []
+        self.warnings: list[str] = []
         self.error: str | None = None
         self.result: dict | None = None
 
@@ -76,6 +77,7 @@ class SessionManager:
                 "started_at": self.started_at,
                 "finished_at": self.finished_at,
                 "completed_steps": list(self.completed_steps),
+                "warnings": list(self.warnings),
                 "error": self.error,
                 "result": self.result,
             }
@@ -119,6 +121,7 @@ class SessionManager:
             self.started_at = datetime.now(timezone.utc).isoformat()
             self.finished_at = None
             self.completed_steps = []
+            self.warnings = []
             self.error = None
             self.result = None
             self._cancel_requested = False
@@ -152,6 +155,7 @@ class SessionManager:
                     "progress_message": self.progress_message,
                     "started_at": self.started_at,
                     "completed_steps": list(self.completed_steps),
+                    "warnings": list(self.warnings),
                     "error": self.error,
                 }
                 save_state(state, config.state_file)
@@ -177,6 +181,7 @@ class SessionManager:
             self.progress_message = ps.get("progress_message")
             self.started_at = ps.get("started_at")
             self.completed_steps = ps.get("completed_steps", [])
+            self.warnings = ps.get("warnings", [])
             self.error = ps.get("error")
 
             # A "running" pipeline on disk means the server crashed mid-run
@@ -258,13 +263,23 @@ class SessionManager:
                 source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
                 all_papers.extend(papers)
 
+            # Detect sources that returned 0 results (likely rate-limited or errored)
+            for source in config.sources:
+                if source_counts.get(source, 0) == 0:
+                    warning = f"{source}: returned 0 results (possible rate limiting or API error)"
+                    with self._lock:
+                        self.warnings.append(warning)
+
             save_papers(all_papers, config.search_dir / "all_records.json")
 
             state = load_state(config.state_file)
             state["search"] = {**source_counts, "total": len(all_papers)}
             save_state(state, config.state_file)
 
-        self._update(progress_message=f"Search complete — {len(all_papers)} records found")
+        msg = f"Search complete — {len(all_papers)} records found"
+        if self.warnings:
+            msg += f" ({len(self.warnings)} warning(s))"
+        self._update(progress_message=msg)
         return {"status": "ok", "total": len(all_papers), "sources": source_counts}
 
     def _run_dedup(self, config: Config) -> dict:

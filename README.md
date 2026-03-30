@@ -15,6 +15,8 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 - **PRISMA flow diagram**: Auto-generated PNG + Markdown with all the numbers
 - **Export**: BibTeX (.bib) for LaTeX/Zotero + CSV for Excel
 - **PDF download**: Automatically download open access papers (arXiv, Unpaywall, Semantic Scholar)
+- **Background pipeline**: Run search → dedup → screen in background with live progress, cancellation, and rate limit handling
+- **Web dashboard**: Real-time pipeline stepper, stat cards, PRISMA flow diagram
 
 ## Quick Start
 
@@ -121,6 +123,14 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | `generate_report` | Generate PRISMA diagram + export .bib/.csv |
 | `download_eligible_papers` | Download open access PDFs (arXiv, Unpaywall, S2) |
 
+### Pipeline Management
+| Tool | Description |
+|------|-------------|
+| `start_pipeline` | Start full pipeline in background (search → dedup → screen) |
+| `get_pipeline_progress` | Check pipeline status, current step, warnings |
+| `stop_pipeline` | Cancel running pipeline (stops after current step) |
+| `start_pipeline_step` | Run a single step (search, dedup, or screen) |
+
 ## Output Files
 
 ```
@@ -179,19 +189,21 @@ Only [2% of systematic review tools](https://doi.org/10.1016/j.jclinepi.2021.10.
 | [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial) | End-to-end walkthrough |
 | [MCP & AI Screening](wiki/MCP-&-AI-Screening) | Setup with any MCP agent |
 | [CLI Reference](wiki/CLI-Reference) | All commands and options |
-| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference) | All 10 MCP tools with params and responses |
+| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference) | All 15 MCP tools with params and responses |
 | [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance) | Checklist mapping, flow diagram alignment |
 | [Writing Your Methodology](wiki/Writing-Your-Methodology) | Template for thesis/paper methods section |
 | [Troubleshooting & FAQ](wiki/Troubleshooting-&-FAQ) | Common issues and solutions |
 
 Also available in `docs/`:
 - [MCP Setup Guide](docs/MCP_SETUP.md) — Quick MCP setup reference
+- [Session System](docs/SESSION_SYSTEM.md) — Background pipeline architecture
 - [Examples](docs/EXAMPLES.md) — Example configs for different research fields
 
 ## Roadmap
 
-- **v1.0** (current): CLI + MCP server with two-pass screening
-- **v2.0** (planned): Web-based UI/UX with visual screening dashboard, drag-and-drop config builder, and interactive PRISMA flow diagrams
+- **v1.0**: CLI + MCP server with two-pass screening
+- **v1.2** (current): Background pipeline sessions, web dashboard, 15 MCP tools
+- **v2.0** (planned): Drag-and-drop config builder, interactive PRISMA flow diagrams, multi-user support
 
 ## How to Cite
 

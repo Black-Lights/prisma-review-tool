@@ -267,6 +267,21 @@ You can then use MCP for AI screening separately.
 
 ---
 
+## Background Pipeline (Web Dashboard)
+
+If you're using the web dashboard instead of the CLI, the pipeline runs in the background:
+
+1. **Start**: Click "Run All" on the dashboard — the pipeline starts immediately and you can navigate to other pages while it runs
+2. **Monitor**: The pipeline stepper animates in real-time, showing the current step and elapsed time
+3. **Warnings**: If a source is rate-limited (e.g., Semantic Scholar), the dashboard shows a warning but the pipeline continues with partial results
+4. **Stop**: Click "Stop" to cancel after the current step — completed results are preserved
+5. **Reload**: Refresh the page at any time — progress survives because state is persisted to disk
+6. **Restart recovery**: If the server crashes mid-pipeline, restarting it will show the pipeline as "failed" with the last known state
+
+You can also start the pipeline from an MCP agent (e.g., Claude Code) and monitor it in the dashboard, or vice versa — they share the same state.
+
+---
+
 ## Tips
 
 1. **Save your config.yaml** — it IS your review protocol. Include it in your thesis supplementary materials.

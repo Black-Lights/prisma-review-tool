@@ -10,6 +10,8 @@ import json
 import sys
 from pathlib import Path
 
+import threading
+
 from mcp.server.fastmcp import FastMCP
 
 # Add parent to path so we can import prisma_review
@@ -24,6 +26,7 @@ from prisma_review.diagram import (
     generate_markdown_diagram, generate_png_diagram,
     load_state, save_state,
 )
+from api.session import SessionManager
 
 # Initialize MCP server
 mcp = FastMCP("prisma-review")
@@ -31,9 +34,22 @@ mcp = FastMCP("prisma-review")
 # Load config — resolve relative to this file's parent (prisma_tool/)
 CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
 
+# Shared file lock and singleton SessionManager for pipeline operations
+_file_lock = threading.Lock()
+_session_manager: SessionManager | None = None
+
 
 def _get_config() -> Config:
     return Config.load(CONFIG_PATH)
+
+
+def _get_session_manager() -> SessionManager:
+    """Get or create the singleton SessionManager for MCP context."""
+    global _session_manager
+    if _session_manager is None:
+        config = _get_config()
+        _session_manager = SessionManager(_file_lock, state_file=config.state_file)
+    return _session_manager
 
 
 @mcp.tool()
@@ -520,6 +536,70 @@ def download_eligible_papers() -> str:
         "failed": stats["failed"],
         "output_dir": str(pdf_dir),
     }, indent=2)
+
+
+# ── Pipeline Session Management ─────────────────────────────────────
+
+
+@mcp.tool()
+def start_pipeline() -> str:
+    """Start the full pipeline (search → dedup → screen) in a background thread.
+
+    Returns the session ID and status. Only one pipeline can run at a time.
+    Use get_pipeline_progress() to monitor progress.
+    """
+    config = _get_config()
+    session = _get_session_manager()
+
+    if session.is_running:
+        return json.dumps({"error": "Pipeline is already running", "status": "running"})
+
+    session_id = session.start_full_pipeline(config)
+    return json.dumps({"status": "started", "session_id": session_id})
+
+
+@mcp.tool()
+def get_pipeline_progress() -> str:
+    """Get the current pipeline progress (status, current step, message, completed steps, warnings).
+
+    This is fast (no disk I/O) and safe to call frequently.
+    Status is one of: idle, running, completed, failed, cancelled.
+    """
+    session = _get_session_manager()
+    return json.dumps(session.get_progress(), indent=2)
+
+
+@mcp.tool()
+def stop_pipeline() -> str:
+    """Request cancellation of the running pipeline.
+
+    The pipeline will stop after the current step finishes. Results from
+    completed steps are preserved.
+    """
+    session = _get_session_manager()
+    if not session.request_cancel():
+        return json.dumps({"error": "No pipeline is currently running"})
+    return json.dumps({"status": "cancel_requested"})
+
+
+@mcp.tool()
+def start_pipeline_step(step: str) -> str:
+    """Start a single pipeline step in a background thread.
+
+    Args:
+        step: The step to run — one of "search", "dedup", or "screen"
+    """
+    if step not in ("search", "dedup", "screen"):
+        return json.dumps({"error": f"Unknown step: {step}. Must be 'search', 'dedup', or 'screen'."})
+
+    config = _get_config()
+    session = _get_session_manager()
+
+    if session.is_running:
+        return json.dumps({"error": "Pipeline is already running", "status": "running"})
+
+    session_id = session.start_step(step, config)
+    return json.dumps({"status": "started", "session_id": session_id, "step": step})
 
 
 if __name__ == "__main__":

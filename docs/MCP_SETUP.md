@@ -103,6 +103,16 @@ The agent should call `get_screening_stats` and show you the current pipeline st
 | Tool | What it does |
 |------|--------------|
 | `generate_report` | Create PRISMA diagram + export .bib/.csv for both passes |
+| `download_eligible_papers` | Download open access PDFs (arXiv, Unpaywall, S2) |
+
+### Pipeline Management
+
+| Tool | What it does |
+|------|--------------|
+| `start_pipeline` | Start full pipeline in background (search → dedup → screen) |
+| `get_pipeline_progress` | Check pipeline status, current step, and warnings |
+| `stop_pipeline` | Cancel running pipeline (stops after current step) |
+| `start_pipeline_step` | Run a single step (search, dedup, or screen) in background |
 
 ## Two-Pass Screening Workflow
 

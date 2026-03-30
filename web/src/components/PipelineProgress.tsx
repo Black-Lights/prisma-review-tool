@@ -149,6 +149,17 @@ export default function PipelineProgress({ onFinished }: PipelineProgressProps) 
             <div className="h-full rounded-full bg-primary animate-pulse w-full origin-left" style={{ animation: "indeterminate 1.5s ease-in-out infinite" }} />
           </div>
         )}
+
+        {/* Warnings */}
+        {progress.warnings?.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {progress.warnings.map((w, i) => (
+              <p key={i} className="text-xs text-accent-amber">
+                ⚠ {w}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
 
       <Modal
