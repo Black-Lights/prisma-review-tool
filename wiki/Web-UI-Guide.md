@@ -215,9 +215,13 @@ Download open access PDFs and view them directly in the app.
 
 #### How it works
 
-1. Click **"Start Download"** — the app searches for open access versions of your eligible papers (or included papers if no eligibility screening was done)
-2. Sources checked: arXiv, Unpaywall API, Semantic Scholar
-3. Only legally available open access papers are downloaded
+1. Click **"Start Download"** — the app tries to download PDFs for your eligible papers (or included papers if no eligibility screening was done)
+2. Download strategies (tried in order):
+   - **Elsevier/ScienceDirect** (if Scopus API key configured) — covers paywalled journals your institution subscribes to
+   - **arXiv** — free preprints
+   - **Unpaywall** — finds legal open access versions
+   - **Semantic Scholar** — last resort OA check
+3. Papers without any available source are marked "No Open Access"
 
 #### Features
 
@@ -232,7 +236,7 @@ Download open access PDFs and view them directly in the app.
 | Status | Meaning |
 |--------|---------|
 | Downloaded | PDF successfully downloaded and available to view |
-| No Open Access | No free version found — check your university library |
+| No Open Access | No version found (not on arXiv, Unpaywall, S2, or Elsevier with your key) |
 | Failed | Download attempted but failed (network error, invalid URL) |
 
 ---

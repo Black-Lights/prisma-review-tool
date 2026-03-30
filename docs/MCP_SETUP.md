@@ -103,7 +103,7 @@ The agent should call `get_screening_stats` and show you the current pipeline st
 | Tool | What it does |
 |------|--------------|
 | `generate_report` | Create PRISMA diagram + export .bib/.csv for both passes |
-| `download_eligible_papers` | Download open access PDFs (arXiv, Unpaywall, S2) |
+| `download_eligible_papers` | Download PDFs (Elsevier, arXiv, Unpaywall, S2) |
 
 ### Pipeline Management
 

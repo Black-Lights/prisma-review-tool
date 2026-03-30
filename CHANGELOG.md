@@ -16,9 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - API key from https://dev.elsevier.com (requires institutional access)
   - Uses raw `requests` — no additional dependencies needed
 
+- **Elsevier/ScienceDirect PDF download**: Papers behind Elsevier paywalls can now be downloaded using the Scopus API key with institutional access
+  - Uses the Elsevier Article Retrieval API (`/content/article/doi/{doi}`)
+  - Tried first in download strategy (before arXiv, Unpaywall, Semantic Scholar)
+  - Covers thousands of subscription journals via institutional access
+  - No new dependencies — uses `requests`
+
 ### Changed
 - `runner.py` now routes to `search_scopus` when "scopus" is in the sources list
 - `config.template.yaml` updated with Scopus API key instructions
+- Download strategy order: Elsevier → arXiv → Unpaywall → Semantic Scholar
+- All download callers (CLI, API, MCP) now pass `config.scopus_key` to `download_papers()`
 
 ## [1.2.0] - 2026-03-30
 
