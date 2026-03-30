@@ -29,7 +29,8 @@ function EligibilityContent() {
     if (batchSize !== 20) params.set("batch", String(batchSize));
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [searchParams, batchSize]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [batchSize]);
 
   const { data, isLoading } = useQuery<EligibilityListResponse>({
     queryKey: ["eligibility-papers", batchSize],
