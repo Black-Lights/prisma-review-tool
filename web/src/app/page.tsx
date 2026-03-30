@@ -96,6 +96,7 @@ export default function DashboardPage() {
 
   // Determine which step is currently active (for stepper highlighting)
   const activeStep = isPipelineRunning ? progress?.current_step : null;
+  const completedInThisRun = isPipelineRunning ? (progress?.completed_steps ?? []) : null;
 
   return (
     <div className="space-y-8">
@@ -141,7 +142,10 @@ export default function DashboardPage() {
             <div className="space-y-0">
               {PIPELINE_STEPS.map((step, idx) => {
                 const count = getNestedValue(stats, step.statPath);
-                const isComplete = count !== null && count > 0;
+                // When pipeline is running, only mark steps completed in THIS run
+                const isComplete = completedInThisRun
+                  ? completedInThisRun.includes(step.key)
+                  : count !== null && count > 0;
                 const isActive = activeStep === step.key;
 
                 return (
