@@ -19,6 +19,13 @@ import {
 
 const SOURCES = ["arxiv", "openalex", "semantic_scholar", "scopus"] as const;
 
+const SOURCE_INFO: Record<string, { label: string; note: string; reliable: boolean }> = {
+  openalex: { label: "OpenAlex", note: "250M+ papers, most reliable", reliable: true },
+  arxiv: { label: "arXiv", note: "Rate-limits aggressively, may return partial results", reliable: false },
+  semantic_scholar: { label: "Semantic Scholar", note: "Heavy rate limits, often returns 0 results", reliable: false },
+  scopus: { label: "Scopus", note: "Requires API key", reliable: true },
+};
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { data: config, isLoading } = useQuery({
@@ -193,18 +200,29 @@ export default function SettingsPage() {
         </div>
         <div>
           <label className="block text-sm text-text-secondary mb-2">Sources</label>
-          <div className="flex flex-wrap gap-3">
-            {SOURCES.map((source) => (
-              <label key={source} className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={(form?.search?.sources ?? []).includes(source)}
-                  onChange={() => toggleSource(source)}
-                  className="w-4 h-4 accent-primary rounded"
-                />
-                <span className="text-sm text-text-primary">{source.replace("_", " ")}</span>
-              </label>
-            ))}
+          <div className="space-y-2">
+            {SOURCES.map((source) => {
+              const info = SOURCE_INFO[source];
+              const checked = (form?.search?.sources ?? []).includes(source);
+              return (
+                <label key={source} className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSource(source)}
+                    className="w-4 h-4 accent-primary rounded shrink-0"
+                  />
+                  <span className="text-sm">
+                    <span className="text-text-primary font-medium">{info?.label ?? source}</span>
+                    {info?.note && (
+                      <span className={`ml-1.5 text-xs ${info.reliable ? "text-text-muted" : "text-accent-amber"}`}>
+                        — {info.note}
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </div>
       </GlassCard>

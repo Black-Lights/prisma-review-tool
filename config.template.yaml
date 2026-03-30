@@ -28,10 +28,13 @@ search:
   max_results_per_query: 500  # Max papers per query per source (safety cap)
 
   # Which databases to search (comment out to disable)
+  # NOTE: OpenAlex is the most reliable. arXiv and Semantic Scholar have
+  # aggressive rate limits that cause slow searches and 0-result failures.
+  # Recommend starting with openalex only, add others if needed.
   sources:
-    - arxiv               # Free, no key needed, great for CS/ML/Physics
-    - openalex            # Free, 250M+ papers, broad coverage
-    - semantic_scholar    # Free, good for CS papers
+    - openalex            # Free, 250M+ papers, most reliable (recommended)
+    # - arxiv             # Free, but rate-limits aggressively (HTTP 429)
+    # - semantic_scholar  # Free, but rate-limits heavily (often returns 0)
     # - scopus            # Needs API key, best metadata quality
 
   # Search queries — use Boolean operators: AND, OR
