@@ -1,6 +1,8 @@
 "use client";
 
-import { Download } from "lucide-react";
+import { useState } from "react";
+import { Download, RefreshCw } from "lucide-react";
+import { generateReport } from "@/lib/api";
 import type { StatsResponse } from "@/lib/api";
 
 interface Props {
@@ -12,6 +14,43 @@ function n(val: number | undefined): string {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+function DownloadActions() {
+  const [regenerating, setRegenerating] = useState(false);
+  const [ready, setReady] = useState(false);
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    setReady(false);
+    try {
+      await generateReport();
+      setReady(true);
+    } finally {
+      setRegenerating(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={handleRegenerate}
+        disabled={regenerating}
+        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-dim text-primary border border-primary/20 hover:bg-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
+      >
+        <RefreshCw size={16} className={regenerating ? "animate-spin" : ""} />
+        {regenerating ? "Regenerating..." : "Regenerate PNG"}
+      </button>
+      <button
+        onClick={() => window.open(`${API_URL}/api/reports/prisma-flow`, "_blank")}
+        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-accent-green/15 text-accent-green border border-accent-green/20 hover:bg-accent-green/25 transition-colors cursor-pointer"
+      >
+        <Download size={16} />
+        Download PNG
+      </button>
+      {ready && <span className="text-xs text-accent-green">PNG updated</span>}
+    </div>
+  );
+}
 
 /* ── Tiny SVG arrow helpers ── */
 
@@ -213,14 +252,8 @@ export default function PrismaFlowDiagram({ stats }: Props) {
         </div>
       </div>
 
-      {/* Download */}
-      <button
-        onClick={() => window.open(`${API_URL}/api/reports/prisma-flow`, "_blank")}
-        className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-dim text-primary border border-primary/20 hover:bg-primary/20 transition-colors cursor-pointer"
-      >
-        <Download size={16} />
-        Download PNG
-      </button>
+      {/* Actions */}
+      <DownloadActions />
     </div>
   );
 }
