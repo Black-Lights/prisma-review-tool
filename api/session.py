@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 import threading
-import time
 import traceback
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Literal
 
 from prisma_review.config import Config
@@ -33,9 +34,10 @@ class SessionManager:
     ``_file_lock`` (shared with the rest of the API) protects JSON writes.
     """
 
-    def __init__(self, file_lock: threading.Lock) -> None:
+    def __init__(self, file_lock: threading.Lock, state_file: Path | None = None) -> None:
         self._lock = threading.Lock()
         self._file_lock = file_lock
+        self._state_file = state_file
         self._thread: threading.Thread | None = None
 
         # Progress state (read by the polling endpoint)
@@ -45,11 +47,15 @@ class SessionManager:
         self.progress_message: str | None = None
         self.started_at: str | None = None
         self.finished_at: str | None = None
+        self.completed_steps: list[str] = []
         self.error: str | None = None
         self.result: dict | None = None
 
         # Cancellation flag — checked between steps
         self._cancel_requested = False
+
+        # Restore state from disk (e.g. after server restart)
+        self._restore_from_disk()
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -69,6 +75,7 @@ class SessionManager:
                 "progress_message": self.progress_message,
                 "started_at": self.started_at,
                 "finished_at": self.finished_at,
+                "completed_steps": list(self.completed_steps),
                 "error": self.error,
                 "result": self.result,
             }
@@ -111,6 +118,7 @@ class SessionManager:
             self.progress_message = "Initializing..."
             self.started_at = datetime.now(timezone.utc).isoformat()
             self.finished_at = None
+            self.completed_steps = []
             self.error = None
             self.result = None
             self._cancel_requested = False
@@ -133,12 +141,60 @@ class SessionManager:
         with self._lock:
             return self._cancel_requested
 
+    def _persist_to_disk(self, config: Config) -> None:
+        """Write current pipeline state to review_state.json."""
+        try:
+            with self._file_lock:
+                state = load_state(config.state_file)
+                state["pipeline"] = {
+                    "status": self.status,
+                    "current_step": self.current_step,
+                    "progress_message": self.progress_message,
+                    "started_at": self.started_at,
+                    "completed_steps": list(self.completed_steps),
+                    "error": self.error,
+                }
+                save_state(state, config.state_file)
+        except Exception:
+            logging.getLogger(__name__).warning("Failed to persist pipeline state", exc_info=True)
+
+    def _restore_from_disk(self) -> None:
+        """Restore pipeline state from disk on startup.
+
+        If the persisted state says "running", the thread is gone (server
+        restarted), so we mark it as "failed".
+        """
+        if self._state_file is None:
+            return
+        try:
+            state = load_state(self._state_file)
+            ps = state.get("pipeline")
+            if not ps or not isinstance(ps, dict):
+                return
+
+            self.status = ps.get("status", "idle")
+            self.current_step = ps.get("current_step")
+            self.progress_message = ps.get("progress_message")
+            self.started_at = ps.get("started_at")
+            self.completed_steps = ps.get("completed_steps", [])
+            self.error = ps.get("error")
+
+            # A "running" pipeline on disk means the server crashed mid-run
+            if self.status == "running":
+                self.status = "failed"
+                self.progress_message = "Pipeline was interrupted by server restart"
+                self.finished_at = datetime.now(timezone.utc).isoformat()
+                self.error = "Server restarted while pipeline was running"
+        except Exception:
+            logging.getLogger(__name__).warning("Failed to restore pipeline state", exc_info=True)
+
     # ------------------------------------------------------------------
     # Pipeline execution (runs in background thread)
     # ------------------------------------------------------------------
 
     def _run_pipeline(self, steps: list[str], config: Config) -> None:
         accumulated: dict = {}
+        self._persist_to_disk(config)
         try:
             for step in steps:
                 if self._is_cancelled():
@@ -147,13 +203,18 @@ class SessionManager:
                         progress_message="Pipeline cancelled by user",
                         finished_at=datetime.now(timezone.utc).isoformat(),
                     )
+                    self._persist_to_disk(config)
                     return
 
                 label = STEP_LABELS.get(step, step)
                 self._update(current_step=step, progress_message=f"{label}...")
+                self._persist_to_disk(config)
 
                 result = self._execute_step(step, config)
                 accumulated[step] = result
+
+                with self._lock:
+                    self.completed_steps.append(step)
 
             self._update(
                 status="completed",
@@ -162,6 +223,7 @@ class SessionManager:
                 finished_at=datetime.now(timezone.utc).isoformat(),
                 result=accumulated,
             )
+            self._persist_to_disk(config)
 
         except Exception as exc:
             self._update(
@@ -170,6 +232,7 @@ class SessionManager:
                 error=traceback.format_exc(),
                 finished_at=datetime.now(timezone.utc).isoformat(),
             )
+            self._persist_to_disk(config)
 
     def _execute_step(self, step: str, config: Config) -> dict:
         """Execute a single pipeline step.  Returns its result dict."""

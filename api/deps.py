@@ -39,5 +39,6 @@ def get_session_manager():
     global _session_manager
     if _session_manager is None:
         from api.session import SessionManager
-        _session_manager = SessionManager(_file_lock)
+        config = get_config()
+        _session_manager = SessionManager(_file_lock, state_file=config.state_file)
     return _session_manager

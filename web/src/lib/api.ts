@@ -147,6 +147,7 @@ export interface PipelineProgress {
   progress_message: string | null;
   started_at: string | null;
   finished_at: string | null;
+  completed_steps: string[];
   error: string | null;
   result: Record<string, any> | null;
 }
