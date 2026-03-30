@@ -65,14 +65,21 @@ export default function DashboardPage() {
     }
   };
 
-  const recordsFound = stats?.search?.total ?? 0;
-  const afterDedup = stats?.dedup?.remaining ?? 0;
-  const firstPassIncluded = stats?.screen?.included ?? 0;
+  // When pipeline is running, show "--" for stats of steps not yet completed
+  const stepsCompleted = progress?.completed_steps ?? [];
+  const pipelineActive = isPipelineRunning || progress?.status === "completed" || progress?.status === "failed" || progress?.status === "cancelled";
+
+  const recordsFound = isPipelineRunning && !stepsCompleted.includes("search")
+    ? "--" : (stats?.search?.total ?? 0);
+  const afterDedup = isPipelineRunning && !stepsCompleted.includes("dedup")
+    ? "--" : (stats?.dedup?.remaining ?? 0);
+  const firstPassIncluded = isPipelineRunning && !stepsCompleted.includes("screen")
+    ? "--" : (stats?.screen?.included ?? 0);
   const finalEligible = stats?.eligibility?.included ?? 0;
 
   const handleRunAllClick = () => {
     if (isPipelineRunning) return;
-    if (recordsFound > 0) {
+    if (typeof recordsFound === "number" && recordsFound > 0) {
       setShowRunAllModal(true);
     } else {
       executeRunAll();

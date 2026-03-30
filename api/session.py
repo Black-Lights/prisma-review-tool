@@ -253,23 +253,25 @@ class SessionManager:
     # -- Individual step implementations (mirror the sync endpoints) ------
 
     def _run_search(self, config: Config) -> dict:
+        # Run network calls WITHOUT holding the file lock (can take minutes)
+        results = run_all_searches(config)
+
+        all_papers = []
+        source_counts: dict[str, int] = {}
+        for key, papers in results.items():
+            source_name = key.split("_")[0]
+            source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
+            all_papers.extend(papers)
+
+        # Detect sources that returned 0 results (likely rate-limited or errored)
+        for source in config.sources:
+            if source_counts.get(source, 0) == 0:
+                warning = f"{source}: returned 0 results (possible rate limiting or API error)"
+                with self._lock:
+                    self.warnings.append(warning)
+
+        # Only hold the lock for file writes
         with self._file_lock:
-            results = run_all_searches(config)
-
-            all_papers = []
-            source_counts: dict[str, int] = {}
-            for key, papers in results.items():
-                source_name = key.split("_")[0]
-                source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
-                all_papers.extend(papers)
-
-            # Detect sources that returned 0 results (likely rate-limited or errored)
-            for source in config.sources:
-                if source_counts.get(source, 0) == 0:
-                    warning = f"{source}: returned 0 results (possible rate limiting or API error)"
-                    with self._lock:
-                        self.warnings.append(warning)
-
             save_papers(all_papers, config.search_dir / "all_records.json")
 
             state = load_state(config.state_file)
@@ -287,8 +289,10 @@ class SessionManager:
         if not papers:
             raise RuntimeError("No papers found. Run search first.")
 
+        # Run computation without lock, only lock for saves
+        unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold)
+
         with self._file_lock:
-            unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold)
             save_papers(unique, config.dedup_dir / "deduplicated.json")
             save_dedup_log(log, config.dedup_dir / "duplicates_log.csv")
 
@@ -304,12 +308,13 @@ class SessionManager:
         if not papers:
             raise RuntimeError("No papers found. Run dedup first.")
 
-        with self._file_lock:
-            papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords, config.min_include_hits)
-            included = get_by_decision(papers, "include")
-            excluded = get_by_decision(papers, "exclude")
-            maybe = get_by_decision(papers, "maybe")
+        # Run computation without lock, only lock for saves
+        papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords, config.min_include_hits)
+        included = get_by_decision(papers, "include")
+        excluded = get_by_decision(papers, "exclude")
+        maybe = get_by_decision(papers, "maybe")
 
+        with self._file_lock:
             save_papers(papers, config.screen_dir / "screen_results.json")
             save_papers(included, config.screen_dir / "included.json")
             save_papers(excluded, config.screen_dir / "excluded.json")
