@@ -22,11 +22,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Warnings field**: Pipeline progress includes a `warnings` list for non-fatal issues (rate limits, partial results)
 - **Session architecture doc**: `docs/SESSION_SYSTEM.md` explaining background execution, state management, MCP/Web UI sharing
 
+### Added (continued)
+- **PRISMA 2020 flow diagram component**: Interactive React-rendered diagram matching the official PRISMA 2020 template (Page et al., BMJ 2021)
+  - Proper phases: Identification, Screening, Included with blue phase labels and gold header
+  - All required PRISMA boxes: Records identified, Records removed before screening, Records screened, Records excluded, Reports sought for retrieval, Reports not retrieved, Reports assessed for eligibility, Reports excluded, Studies included
+  - Auto-populates from live stats, updates when pipeline or screening data changes
+  - Download PNG button captures the diagram at 3x resolution using html-to-image
+- **PDF browser on Downloads page**: View downloaded papers directly in the web app
+  - Inline PDF viewer using browser's native PDF viewer in an iframe
+  - Filter pills: All, Downloaded, No OA, Failed with counts
+  - Paper table with status, title, DOI links, and View button
+  - Same-origin PDF proxy via Next.js API route (avoids cross-origin issues)
+- **Eligibility filters on All Papers page**: "Eligible: Included" and "Eligible: Excluded" filters
+- **Clickable paper titles**: Paper titles on Screening and Eligibility pages link to paper detail
+- **Scroll restoration**: Custom ScrollRestoration component saves/restores scroll position for the main content area across all pages
+- **URL-persisted pagination**: Page numbers, filters, and batch sizes are synced to URL params and survive back navigation
+- **Source reliability info on Settings page**: Each source shows reliability status and rate-limit warnings
+
 ### Changed
 - Dashboard "Run All" button now launches background pipeline with live progress bar
 - PipelineProgress component shows elapsed time, stop button, and warning indicators
 - Modal component now awaits async `onConfirm` before closing (fixes race condition)
 - MCP server tools count increased from 11 to 15
+- PRISMA flow diagram replaced matplotlib PNG with interactive React component
+- Default sources changed to OpenAlex only (arXiv and Semantic Scholar disabled due to rate limits)
+- Pipeline stepper shows "--" for pending stats and hides stale counts during pipeline runs
+- "AI Eligibility" renamed to "Eligibility" (supports both manual and AI screening)
+- Stale eligibility data and download logs cleared automatically when pipeline re-runs
+- File locks released during network calls (search no longer blocks API for minutes)
+- Load More button preserves scroll position on Screening, Eligibility, and All Papers pages
+- "Go Back" button on paper detail uses router.back() to return to the originating page
 
 ## [1.1.0] - 2026-03-29
 

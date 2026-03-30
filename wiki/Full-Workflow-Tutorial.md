@@ -282,6 +282,28 @@ You can also start the pipeline from an MCP agent (e.g., Claude Code) and monito
 
 ---
 
+## Web Dashboard Pages
+
+| Page | URL | Purpose |
+|------|-----|---------|
+| **Dashboard** | `/` | Stats, PRISMA flow diagram, pipeline stepper, Run All button |
+| **Screening** | `/screening` | Review "maybe" papers, include/exclude with reasons |
+| **Eligibility** | `/eligibility` | Second-pass stricter review of included papers |
+| **All Papers** | `/papers` | Browse all papers with filters (decision, source, eligibility) |
+| **Settings** | `/settings` | Configure sources, queries, keywords, thresholds |
+| **Downloads** | `/downloads` | Download open access PDFs, view them inline |
+| **MCP Settings** | `/mcp-settings` | MCP server configuration for AI agents |
+
+### PRISMA Flow Diagram
+
+The dashboard shows an interactive PRISMA 2020 flow diagram that matches the official template (Page et al., BMJ 2021). It auto-updates as you screen papers. Click "Download PNG" to save a high-resolution image for your thesis.
+
+### PDF Viewer
+
+After downloading papers, go to the Downloads page to browse them. Click "View" to read a PDF inline without leaving the app.
+
+---
+
 ## Tips
 
 1. **Save your config.yaml** — it IS your review protocol. Include it in your thesis supplementary materials.

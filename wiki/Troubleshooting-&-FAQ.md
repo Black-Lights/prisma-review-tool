@@ -164,6 +164,26 @@ The CSV uses UTF-8 encoding. In Excel: File → Open → select the CSV → choo
 
 ---
 
+### Web Dashboard
+
+**Dashboard shows stale numbers after re-running pipeline**
+
+The pipeline automatically clears stale eligibility data and download logs when screening re-runs. If you still see old numbers, refresh the page — stats are cached for 30 seconds.
+
+**PDF viewer shows "Failed to fetch"**
+
+The PDF viewer uses a same-origin proxy. Make sure both the backend (`uvicorn api.main:app --port 8001`) and frontend (`npx next dev -p 3001`) are running. The frontend must be started with `NEXT_PUBLIC_API_URL=http://localhost:8001`.
+
+**Eligibility page shows wrong progress (e.g., 457%)**
+
+This happens when old eligibility data from a previous run persists. Re-run the pipeline (click "Run All") — it will clear stale eligibility data automatically.
+
+**Filters on All Papers page don't work**
+
+Make sure you restarted the frontend after updating. The filter state is driven by React state synced to URL params.
+
+---
+
 ## FAQ
 
 ### Can I use this tool for any research topic?

@@ -12,11 +12,11 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
   - **Pass 1**: Rule-based keyword screening (automated)
   - **Pass 2**: AI-assisted eligibility screening via MCP (stricter criteria)
 - **AI screening via MCP**: Works with Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, Amazon Q, Gemini CLI, and any MCP-compatible agent
-- **PRISMA flow diagram**: Auto-generated PNG + Markdown with all the numbers
+- **PRISMA 2020 flow diagram**: Interactive diagram matching the official template (Page et al., 2021) with download-as-PNG
 - **Export**: BibTeX (.bib) for LaTeX/Zotero + CSV for Excel
-- **PDF download**: Automatically download open access papers (arXiv, Unpaywall, Semantic Scholar)
+- **PDF download & viewer**: Download open access papers and view them inline in the web app
 - **Background pipeline**: Run search → dedup → screen in background with live progress, cancellation, and rate limit handling
-- **Web dashboard**: Real-time pipeline stepper, stat cards, PRISMA flow diagram
+- **Web dashboard**: Real-time pipeline stepper, stat cards, PRISMA flow diagram, PDF browser, eligibility filters
 
 ## Quick Start
 

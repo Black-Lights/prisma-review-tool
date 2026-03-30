@@ -156,3 +156,30 @@ Warnings are included in the progress response and displayed in the web UI. The 
   "result": "object | null"
 }
 ```
+
+## Stale Data Cleanup
+
+When the pipeline re-runs the screening step, it automatically clears stale data from previous runs:
+
+- **Eligibility files**: `eligibility_results.json`, `eligible_included.json`, `eligible_excluded.json` are emptied
+- **Eligibility state**: The `eligibility` key is removed from `review_state.json`
+- **Download log**: `_download_log.json` is deleted (old download results are no longer valid)
+
+This ensures the dashboard, eligibility page, and downloads page never show data from a previous pipeline run.
+
+## Web Dashboard Features
+
+The dashboard (`web/src/app/page.tsx`) provides:
+
+- **Stat cards**: Records Found, After Dedup, First Pass Included, Final Eligible — show "--" during pipeline runs, update live as steps complete (5s refetch interval)
+- **PRISMA 2020 flow diagram**: Interactive React component matching the official template, auto-populated from stats, with Download PNG button
+- **Pipeline stepper**: Shows completed/running/pending steps with live animation, only marks steps green when completed in the current run
+- **PDF browser**: Downloads page with inline PDF viewer, filter pills, and same-origin proxy for cross-origin PDF display
+
+## PDF Viewer Architecture
+
+The Downloads page includes an inline PDF viewer. Because the frontend (port 3001) and backend (port 8001) run on different origins, direct iframe loading of PDFs triggers browser download dialogs. The solution:
+
+1. Next.js API route at `/api/pdf/[filename]` proxies the PDF from the backend
+2. The iframe loads from the same-origin proxy URL
+3. The browser displays the PDF using its native PDF viewer
