@@ -326,6 +326,11 @@ class SessionManager:
                 if elig_path.exists():
                     save_papers([], elig_path)
 
+            # Clear stale download log — papers have changed
+            download_log = config.output_dir / "05_pdfs" / "_download_log.json"
+            if download_log.exists():
+                download_log.unlink()
+
             state = load_state(config.state_file)
             state["screen"] = {
                 "total_screened": len(papers),
