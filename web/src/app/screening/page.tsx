@@ -106,7 +106,8 @@ function ScreeningContent() {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search papers by title, author, or keyword..."
-            className="glass-input w-full pl-10"
+            className="glass-input w-full"
+            style={{ paddingLeft: "2.5rem" }}
           />
         </div>
         <button
