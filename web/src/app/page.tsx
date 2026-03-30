@@ -19,7 +19,7 @@ const PIPELINE_STEPS = [
   { key: "search", label: "Search Databases", statPath: "search.total" },
   { key: "dedup", label: "Deduplicate", statPath: "dedup.remaining" },
   { key: "screen", label: "Keyword Screening", statPath: "screen.included" },
-  { key: "eligibility", label: "AI Eligibility", statPath: "eligibility.included" },
+  { key: "eligibility", label: "Eligibility", statPath: "eligibility.included" },
   { key: "export", label: "Export & Download", statPath: null },
 ] as const;
 
