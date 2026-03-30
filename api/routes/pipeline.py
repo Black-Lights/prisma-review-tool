@@ -1,8 +1,11 @@
-"""Pipeline endpoints — trigger search, dedup, screening steps."""
+"""Pipeline endpoints — trigger search, dedup, screening steps.
+
+Supports both synchronous (blocking) and background (non-blocking) execution.
+"""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException
 
 from prisma_review.config import Config
 from prisma_review.models import load_papers, save_papers
@@ -11,16 +14,64 @@ from prisma_review.dedup import deduplicate, save_dedup_log
 from prisma_review.screen import screen_by_rules, get_by_decision
 from prisma_review.diagram import load_state, save_state
 
-from api.deps import get_config, get_file_lock
+from api.deps import get_config, get_file_lock, get_session_manager
+from api.session import SessionManager
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
+
+# ── Status / progress ────────────────────────────────────────────────
 
 @router.get("/status")
 def pipeline_status(config: Config = Depends(get_config)):
     state = load_state(config.state_file)
     return {"project": config.project_name, "output_dir": str(config.output_dir), **state}
 
+
+@router.get("/progress")
+def pipeline_progress(session: SessionManager = Depends(get_session_manager)):
+    """Fast polling endpoint — returns in-memory progress, no disk I/O."""
+    return session.get_progress()
+
+
+# ── Background execution ─────────────────────────────────────────────
+
+@router.post("/start")
+def start_pipeline(
+    config: Config = Depends(get_config),
+    session: SessionManager = Depends(get_session_manager),
+):
+    """Start the full pipeline (search -> dedup -> screen) in a background thread."""
+    if session.is_running:
+        raise HTTPException(status_code=409, detail="Pipeline is already running")
+    session_id = session.start_full_pipeline(config)
+    return {"status": "started", "session_id": session_id}
+
+
+@router.post("/start/{step}")
+def start_single_step(
+    step: str,
+    config: Config = Depends(get_config),
+    session: SessionManager = Depends(get_session_manager),
+):
+    """Start a single pipeline step in a background thread."""
+    if session.is_running:
+        raise HTTPException(status_code=409, detail="Pipeline is already running")
+    if step not in ("search", "dedup", "screen"):
+        raise HTTPException(status_code=400, detail=f"Unknown step: {step}")
+    session_id = session.start_step(step, config)
+    return {"status": "started", "session_id": session_id, "step": step}
+
+
+@router.post("/stop")
+def stop_pipeline(session: SessionManager = Depends(get_session_manager)):
+    """Request cancellation of the running pipeline."""
+    if not session.request_cancel():
+        raise HTTPException(status_code=409, detail="No pipeline is currently running")
+    return {"status": "cancel_requested"}
+
+
+# ── Synchronous (legacy) endpoints ───────────────────────────────────
 
 @router.post("/search")
 def run_search(config: Config = Depends(get_config), lock=Depends(get_file_lock)):

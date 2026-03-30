@@ -1,12 +1,19 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Play, RefreshCw } from "lucide-react";
+import { CheckCircle2, Circle, Play, RefreshCw, Square } from "lucide-react";
 import StatCard from "@/components/StatCard";
 import GlassCard from "@/components/GlassCard";
-import { fetchStats, generateReport, runPipelineStep } from "@/lib/api";
+import PipelineProgress from "@/components/PipelineProgress";
+import {
+  fetchStats,
+  generateReport,
+  startPipeline,
+  fetchPipelineProgress,
+  PipelineStatusType,
+} from "@/lib/api";
 import Modal from "@/components/Modal";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -31,12 +38,20 @@ function getNestedValue(obj: any, path: string | null): number | null {
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const [regenerating, setRegenerating] = useState(false);
-  const [runningAll, setRunningAll] = useState(false);
+  const [showRunAllModal, setShowRunAllModal] = useState(false);
 
   const { data: stats, isLoading } = useQuery({
     queryKey: ["stats"],
     queryFn: fetchStats,
   });
+
+  // Check if pipeline is already running on mount
+  const { data: progress } = useQuery({
+    queryKey: ["pipeline-progress"],
+    queryFn: fetchPipelineProgress,
+  });
+
+  const isPipelineRunning = progress?.status === "running";
 
   const handleRegenerate = async () => {
     setRegenerating(true);
@@ -48,9 +63,13 @@ export default function DashboardPage() {
     }
   };
 
-  const [showRunAllModal, setShowRunAllModal] = useState(false);
+  const recordsFound = stats?.search?.total ?? 0;
+  const afterDedup = stats?.dedup?.remaining ?? 0;
+  const firstPassIncluded = stats?.screen?.included ?? 0;
+  const finalEligible = stats?.eligibility?.included ?? 0;
 
   const handleRunAllClick = () => {
+    if (isPipelineRunning) return;
     if (recordsFound > 0) {
       setShowRunAllModal(true);
     } else {
@@ -59,19 +78,24 @@ export default function DashboardPage() {
   };
 
   const executeRunAll = async () => {
-    setRunningAll(true);
     try {
-      await runPipelineStep("run-all");
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    } finally {
-      setRunningAll(false);
+      await startPipeline();
+      // Kick off polling immediately
+      queryClient.invalidateQueries({ queryKey: ["pipeline-progress"] });
+    } catch {
+      // 409 = already running, ignore
     }
   };
 
-  const recordsFound = stats?.search?.total ?? 0;
-  const afterDedup = stats?.dedup?.remaining ?? 0;
-  const firstPassIncluded = stats?.screen?.included ?? 0;
-  const finalEligible = stats?.eligibility?.included ?? 0;
+  const handlePipelineFinished = useCallback(
+    (status: PipelineStatusType) => {
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+    },
+    [queryClient]
+  );
+
+  // Determine which step is currently active (for stepper highlighting)
+  const activeStep = isPipelineRunning ? progress?.current_step : null;
 
   return (
     <div className="space-y-8">
@@ -89,7 +113,7 @@ export default function DashboardPage() {
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* PRISMA Flow — left column */}
+        {/* PRISMA Flow -- left column */}
         <div className="lg:col-span-3 space-y-4">
           <h2 className="text-xl font-semibold text-text-primary">PRISMA Flow</h2>
           <GlassCard className="flex flex-col items-center gap-4">
@@ -109,7 +133,7 @@ export default function DashboardPage() {
           </GlassCard>
         </div>
 
-        {/* Pipeline — right column */}
+        {/* Pipeline -- right column */}
         <div className="lg:col-span-2 space-y-4">
           <h2 className="text-xl font-semibold text-text-primary">Pipeline</h2>
           <GlassCard className="flex flex-col gap-1">
@@ -118,12 +142,17 @@ export default function DashboardPage() {
               {PIPELINE_STEPS.map((step, idx) => {
                 const count = getNestedValue(stats, step.statPath);
                 const isComplete = count !== null && count > 0;
+                const isActive = activeStep === step.key;
 
                 return (
                   <div key={step.key} className="flex items-start gap-3 relative">
                     {/* Connector line */}
                     <div className="flex flex-col items-center">
-                      {isComplete ? (
+                      {isActive ? (
+                        <div className="w-[22px] h-[22px] rounded-full border-2 border-primary bg-primary/20 flex items-center justify-center">
+                          <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+                        </div>
+                      ) : isComplete ? (
                         <CheckCircle2 size={22} className="text-accent-green shrink-0" />
                       ) : (
                         <Circle size={22} className="text-text-muted shrink-0" />
@@ -137,10 +166,17 @@ export default function DashboardPage() {
                     <div className="pb-6">
                       <p
                         className={`text-sm font-medium ${
-                          isComplete ? "text-text-primary" : "text-text-muted"
+                          isActive
+                            ? "text-primary"
+                            : isComplete
+                            ? "text-text-primary"
+                            : "text-text-muted"
                         }`}
                       >
                         {step.label}
+                        {isActive && (
+                          <span className="ml-2 text-xs font-normal text-text-secondary">Running...</span>
+                        )}
                       </p>
                       {count !== null && (
                         <p className="text-xs text-text-secondary mt-0.5">
@@ -153,18 +189,26 @@ export default function DashboardPage() {
               })}
             </div>
 
-            {/* Run All button */}
+            {/* Pipeline progress bar (shows when running or just finished) */}
+            <PipelineProgress onFinished={handlePipelineFinished} />
+
+            {/* Run All / disabled button */}
             <button
               onClick={handleRunAllClick}
-              disabled={runningAll}
-              className="mt-2 flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-sm font-semibold bg-accent-green/15 text-accent-green border border-accent-green/20 hover:bg-accent-green/25 disabled:opacity-50 transition-colors cursor-pointer"
+              disabled={isPipelineRunning}
+              className={`mt-2 flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${
+                isPipelineRunning
+                  ? "bg-text-muted/10 text-text-muted border border-text-muted/20 cursor-not-allowed"
+                  : "bg-accent-green/15 text-accent-green border border-accent-green/20 hover:bg-accent-green/25"
+              }`}
             >
               <Play size={16} />
-              {runningAll ? "Running..." : "Run All"}
+              {isPipelineRunning ? "Pipeline Running..." : "Run All"}
             </button>
           </GlassCard>
         </div>
       </div>
+
       <Modal
         open={showRunAllModal}
         onClose={() => setShowRunAllModal(false)}

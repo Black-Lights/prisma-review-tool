@@ -10,6 +10,9 @@ from prisma_review.config import Config
 _config: Config | None = None
 _file_lock = threading.Lock()
 
+# Lazy-initialised session manager (needs _file_lock)
+_session_manager = None
+
 
 def init_config(config_path: Path | None = None) -> None:
     """Initialize the global config. Called once at app startup."""
@@ -29,3 +32,12 @@ def get_config() -> Config:
 def get_file_lock() -> threading.Lock:
     """Get the file lock for thread-safe JSON writes."""
     return _file_lock
+
+
+def get_session_manager():
+    """Get the singleton SessionManager instance."""
+    global _session_manager
+    if _session_manager is None:
+        from api.session import SessionManager
+        _session_manager = SessionManager(_file_lock)
+    return _session_manager

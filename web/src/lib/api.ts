@@ -45,9 +45,18 @@ export const fetchAllPapers = (page = 1, perPage = 20, decision = "all", source 
 export const fetchPaper = (id: string) => request<PaperDetail>(`/api/papers/${id}`);
 export const searchPapers = (q: string) => request<SearchResponse>(`/api/papers/search?q=${encodeURIComponent(q)}`);
 
-// Pipeline
+// Pipeline — synchronous (legacy)
 export const fetchPipelineStatus = () => request<any>("/api/pipeline/status");
 export const runPipelineStep = (step: string) => request<any>(`/api/pipeline/${step}`, { method: "POST" });
+
+// Pipeline — background session
+export const startPipeline = () =>
+  request<{ status: string; session_id: string }>("/api/pipeline/start", { method: "POST" });
+export const startPipelineStep = (step: string) =>
+  request<{ status: string; session_id: string; step: string }>(`/api/pipeline/start/${step}`, { method: "POST" });
+export const fetchPipelineProgress = () => request<PipelineProgress>("/api/pipeline/progress");
+export const stopPipeline = () =>
+  request<{ status: string }>("/api/pipeline/stop", { method: "POST" });
 
 // Reports
 export const generateReport = () => request<any>("/api/reports/generate", { method: "POST" });
@@ -127,4 +136,17 @@ export interface SearchResponse {
   query: string;
   matches: number;
   papers: { id: string; title: string; year: number; source: string; decision: string | null }[];
+}
+
+export type PipelineStatusType = "idle" | "running" | "completed" | "failed" | "cancelled";
+
+export interface PipelineProgress {
+  session_id: string | null;
+  status: PipelineStatusType;
+  current_step: string | null;
+  progress_message: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+  result: Record<string, any> | null;
 }
