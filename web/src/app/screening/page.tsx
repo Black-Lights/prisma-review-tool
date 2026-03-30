@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
@@ -17,9 +18,33 @@ const FILTER_OPTIONS: { label: string; value: FilterType }[] = [
 ];
 
 export default function ScreeningPage() {
+  return (
+    <Suspense>
+      <ScreeningContent />
+    </Suspense>
+  );
+}
+
+function ScreeningContent() {
   const queryClient = useQueryClient();
-  const [filter, setFilter] = useState<FilterType>("maybe");
-  const [batchSize, setBatchSize] = useState(20);
+  const searchParams = useSearchParams();
+
+  // Read state from URL params (survives back navigation)
+  const filter = (searchParams.get("filter") || "maybe") as FilterType;
+  const batchSize = parseInt(searchParams.get("batch") || "20", 10);
+
+  const updateParams = useCallback((updates: Record<string, string>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if ((key === "filter" && value === "maybe") || (key === "batch" && value === "20")) params.delete(key);
+      else params.set(key, value);
+    }
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [searchParams]);
+
+  const setFilter = (v: FilterType) => { updateParams({ filter: v, batch: "20" }); };
+  const setBatchSize = (fn: (prev: number) => number) => { updateParams({ batch: String(fn(batchSize)) }); };
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
@@ -146,7 +171,6 @@ export default function ScreeningPage() {
             key={opt.value}
             onClick={() => {
               setFilter(opt.value);
-              setBatchSize(20);
             }}
             className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-colors cursor-pointer ${
               filter === opt.value

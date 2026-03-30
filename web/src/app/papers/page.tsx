@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams, useRouter } from "next/navigation";
 import { fetchAllPapers, searchPapers } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import Link from "next/link";
@@ -22,12 +23,41 @@ const sourceColor: Record<string, string> = {
 };
 
 export default function PapersPage() {
-  const [page, setPage] = useState(1);
-  const [perPage] = useState(25);
-  const [decisionFilter, setDecisionFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
+  return (
+    <Suspense>
+      <PapersContent />
+    </Suspense>
+  );
+}
+
+function PapersContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const perPage = 25;
+
+  // Read state from URL params (survives back navigation)
+  const page = parseInt(searchParams.get("page") || "1", 10);
+  const decisionFilter = searchParams.get("decision") || "all";
+  const sourceFilter = searchParams.get("source") || "all";
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const updateParams = useCallback((updates: Record<string, string>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === "all" || value === "1") params.delete(key);
+      else params.set(key, value);
+    }
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, [searchParams]);
+
+  const setPage = (p: number | ((prev: number) => number)) => {
+    const newPage = typeof p === "function" ? p(page) : p;
+    updateParams({ page: String(newPage) });
+  };
+  const setDecisionFilter = (v: string) => { updateParams({ decision: v, page: "1" }); };
+  const setSourceFilter = (v: string) => { updateParams({ source: v, page: "1" }); };
 
   // Paginated papers from API
   const { data, isLoading, isPlaceholderData } = useQuery({
