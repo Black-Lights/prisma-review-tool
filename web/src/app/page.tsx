@@ -40,11 +40,6 @@ export default function DashboardPage() {
   const [regenerating, setRegenerating] = useState(false);
   const [showRunAllModal, setShowRunAllModal] = useState(false);
 
-  const { data: stats, isLoading } = useQuery({
-    queryKey: ["stats"],
-    queryFn: fetchStats,
-  });
-
   // Check if pipeline is already running on mount
   const { data: progress } = useQuery({
     queryKey: ["pipeline-progress"],
@@ -52,6 +47,13 @@ export default function DashboardPage() {
   });
 
   const isPipelineRunning = progress?.status === "running";
+
+  const { data: stats, isLoading } = useQuery({
+    queryKey: ["stats"],
+    queryFn: fetchStats,
+    // Refetch stats while pipeline runs so counts update as steps complete
+    refetchInterval: isPipelineRunning ? 5000 : false,
+  });
 
   const handleRegenerate = async () => {
     setRegenerating(true);
@@ -182,7 +184,7 @@ export default function DashboardPage() {
                           <span className="ml-2 text-xs font-normal text-text-secondary">Running...</span>
                         )}
                       </p>
-                      {count !== null && (
+                      {count !== null && (isComplete || !completedInThisRun) && (
                         <p className="text-xs text-text-secondary mt-0.5">
                           {count.toLocaleString()} records
                         </p>
