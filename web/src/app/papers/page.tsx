@@ -18,6 +18,7 @@ const decisionColor: Record<string, string> = {
 
 const sourceColor: Record<string, string> = {
   openalex: "bg-primary/15 text-primary",
+  scopus: "bg-accent-green/15 text-accent-green",
   arxiv: "bg-accent-purple/15 text-accent-purple",
   semantic_scholar: "bg-accent-amber/15 text-accent-amber",
 };
@@ -127,6 +128,7 @@ function PapersContent() {
         <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Source: All</option>
           <option value="openalex">OpenAlex</option>
+          <option value="scopus">Scopus</option>
           <option value="arxiv">arXiv</option>
           <option value="semantic_scholar">Semantic Scholar</option>
         </select>

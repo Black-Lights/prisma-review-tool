@@ -47,7 +47,16 @@ export default function PrismaFlowDiagram({ stats }: Props) {
     if (!diagramRef.current) return;
     setDownloading(true);
     try {
-      const dataUrl = await toPng(diagramRef.current, { pixelRatio: 3, backgroundColor: "#ffffff" });
+      const dataUrl = await toPng(diagramRef.current, {
+        pixelRatio: 3,
+        backgroundColor: "#ffffff",
+        skipFonts: true,
+        filter: (node: HTMLElement) => {
+          // Skip link elements pointing to external stylesheets (causes CORS errors)
+          if (node.tagName === "LINK" && node.getAttribute("rel") === "stylesheet") return false;
+          return true;
+        },
+      });
       const link = document.createElement("a");
       link.download = "prisma_2020_flow_diagram.png";
       link.href = dataUrl;
