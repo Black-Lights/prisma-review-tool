@@ -24,9 +24,10 @@ export default function ScreeningPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[] | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["papers-to-screen", filter, batchSize],
     queryFn: () => fetchPapersToScreen(batchSize, filter),
+    placeholderData: (prev) => prev,
   });
 
   const handleDecision = async (id: string, decision: string, reason: string) => {

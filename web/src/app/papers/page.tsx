@@ -30,9 +30,10 @@ export default function PapersPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Paginated papers from API
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isPlaceholderData } = useQuery({
     queryKey: ["all-papers", page, perPage, decisionFilter, sourceFilter],
     queryFn: () => fetchAllPapers(page, perPage, decisionFilter, sourceFilter),
+    placeholderData: (prev) => prev,
   });
 
   // Search
