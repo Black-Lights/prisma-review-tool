@@ -83,7 +83,7 @@ function PapersContent() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div data-tutorial="papers-header" className="flex items-center gap-4">
         <h1 className="text-2xl font-bold text-text-primary">All Papers</h1>
         <span className="inline-flex items-center rounded-full bg-primary/15 px-3 py-1 text-sm font-medium text-primary">
           {total} {showSearch ? "matches" : "total"}
@@ -114,7 +114,7 @@ function PapersContent() {
       </form>
 
       {/* Filters + Export */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div data-tutorial="papers-filters" className="flex flex-wrap items-center gap-3">
         <select value={decisionFilter} onChange={(e) => { setDecisionFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Decision: All</option>
           <option value="include">Included (1st pass)</option>

@@ -85,7 +85,7 @@ function ScreeningContent() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div data-tutorial="screening-header" className="flex items-center gap-3">
         <h1 className="text-3xl font-bold text-text-primary tracking-tight">
           Screening
         </h1>
@@ -165,7 +165,7 @@ function ScreeningContent() {
       )}
 
       {/* Filter pills */}
-      <div className="flex gap-2">
+      <div data-tutorial="filter-pills" className="flex gap-2">
         {FILTER_OPTIONS.map((opt) => (
           <button
             key={opt.value}

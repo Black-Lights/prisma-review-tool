@@ -25,7 +25,7 @@ export default function PaperCard({ paper, onDecision, mode = "screen" }: PaperC
   const sourceClass = sourceBadgeColors[paper.source] ?? "bg-bg-glass text-text-secondary";
 
   return (
-    <div className="glass p-5 space-y-3">
+    <div data-tutorial="paper-card" className="glass p-5 space-y-3">
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <Link href={`/papers/${paper.id}`} className="text-base font-bold text-text-primary leading-snug flex-1 hover:text-primary transition-colors">
@@ -51,8 +51,9 @@ export default function PaperCard({ paper, onDecision, mode = "screen" }: PaperC
         </p>
         {paper.abstract && paper.abstract.length > 200 && (
           <button
-            onClick={() => setExpanded(!expanded)}
-            className="mt-1 flex items-center gap-1 text-xs text-primary hover:text-primary/80"
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+            className="mt-1 flex items-center gap-1 text-xs text-primary hover:text-primary/80 cursor-pointer"
           >
             {expanded ? (
               <>
@@ -96,7 +97,7 @@ export default function PaperCard({ paper, onDecision, mode = "screen" }: PaperC
 
       {/* Decision controls */}
       {!hasDecision && (
-        <div className="flex items-center gap-3 pt-1">
+        <div data-tutorial="decision-controls" className="flex items-center gap-3 pt-1">
           <input
             type="text"
             placeholder="Reason for decision..."

@@ -1,10 +1,10 @@
 "use client";
 
-interface GlassCardProps {
+interface GlassCardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode;
   className?: string;
 }
 
-export default function GlassCard({ children, className = "" }: GlassCardProps) {
-  return <div className={`glass p-6 ${className}`}>{children}</div>;
+export default function GlassCard({ children, className = "", ...rest }: GlassCardProps) {
+  return <div className={`glass p-6 ${className}`} {...rest}>{children}</div>;
 }

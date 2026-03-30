@@ -101,7 +101,7 @@ export default function DashboardPage() {
       </h1>
 
       {/* Stat cards row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div data-tutorial="stat-cards" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Records Found" value={isLoading ? "..." : recordsFound} color="blue" />
         <StatCard label="After Dedup" value={isLoading ? "..." : afterDedup} color="amber" />
         <StatCard label="First Pass Included" value={isLoading ? "..." : firstPassIncluded} color="green" />
@@ -111,13 +111,13 @@ export default function DashboardPage() {
       {/* Two-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* PRISMA Flow -- left column */}
-        <div className="lg:col-span-3 space-y-4">
+        <div data-tutorial="prisma-diagram" className="lg:col-span-3 space-y-4">
           <h2 className="text-xl font-semibold text-text-primary">PRISMA Flow</h2>
           <PrismaFlowDiagram stats={stats} />
         </div>
 
         {/* Pipeline -- right column */}
-        <div className="lg:col-span-2 space-y-4">
+        <div data-tutorial="pipeline-stepper" className="lg:col-span-2 space-y-4">
           <h2 className="text-xl font-semibold text-text-primary">Pipeline</h2>
           <GlassCard className="flex flex-col gap-1">
             {/* Vertical stepper */}
@@ -180,6 +180,7 @@ export default function DashboardPage() {
 
             {/* Run All / disabled button */}
             <button
+              data-tutorial="run-all"
               onClick={handleRunAllClick}
               disabled={isPipelineRunning}
               className={`mt-2 flex items-center justify-center gap-2 w-full px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors cursor-pointer ${

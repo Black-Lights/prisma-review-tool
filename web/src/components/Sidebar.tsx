@@ -10,7 +10,9 @@ import {
   Sliders,
   HardDriveDownload,
   Plug,
+  HelpCircle,
 } from "lucide-react";
+import { useTutorial } from "@/context/TutorialContext";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -24,9 +26,10 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { start } = useTutorial();
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-64 bg-bg-surface border-r border-border-glass flex flex-col z-50">
+    <aside data-tutorial="sidebar" className="fixed left-0 top-0 h-screen w-64 bg-bg-surface border-r border-border-glass flex flex-col z-50">
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-6">
         <svg
@@ -89,9 +92,19 @@ export function Sidebar() {
         })}
       </nav>
 
+      {/* Take Tour */}
+      <div className="px-3 mb-1">
+        <button
+          onClick={start}
+          className="flex items-center gap-2 w-full h-[38px] pl-4 rounded-lg text-xs font-medium text-text-muted hover:text-primary hover:bg-bg-glass transition-colors cursor-pointer"
+        >
+          <HelpCircle size={16} /> Take Tour
+        </button>
+      </div>
+
       {/* Footer */}
       <div className="px-5 py-4 flex items-center justify-between">
-        <span className="text-[11px] text-text-muted">v1.1.0 · MIT License</span>
+        <span className="text-[11px] text-text-muted">v1.2.0 · MIT License</span>
         <a
           href="https://github.com/Black-Lights/prisma-review-tool"
           target="_blank"

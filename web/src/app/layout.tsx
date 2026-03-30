@@ -3,6 +3,7 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { Sidebar } from "@/components/Sidebar";
 import ScrollRestoration from "@/components/ScrollRestoration";
+import TutorialOverlay from "@/components/Tutorial";
 
 export const metadata: Metadata = {
   title: "PRISMA Review Tool",
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <ScrollRestoration />
               {children}
             </main>
+            <TutorialOverlay />
           </div>
         </Providers>
       </body>
