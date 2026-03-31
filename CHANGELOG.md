@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-31
+
+### Added
+- **Multi-project management**: Save, load, and switch between multiple literature review projects
+  - Each project gets its own isolated directory under `projects/` with config.yaml + prisma_output/
+  - REST API: 8 new endpoints under `/api/projects` (list, create, switch, delete, duplicate, export, import, active)
+  - Web UI: New `/projects` page with glass card grid — create, switch, duplicate, delete, export (.zip), import
+  - Sidebar: Active project indicator below logo + Projects nav item
+  - Dashboard: Shows active project name in header
+- **Auto-migration**: On first run, existing root `config.yaml` + `prisma_output/` are automatically copied into `projects/{slug}/` (originals preserved for CLI backward compatibility)
+- **Project export/import**: Export any project as a .zip archive, import from .zip to create a new project
+
+### Changed
+- `api/deps.py`: Added `get_projects_dir()` and `switch_project()` for project isolation
+- `api/main.py`: Startup now checks for active project, auto-migrates if needed, registers projects router
+- `api/routes/config_routes.py`: Config path resolves from active project instead of hardcoded root
+- `.gitignore`: Added `projects/` (user data)
+- API version bumped to 1.2.0
+
 ## [1.2.1] - 2026-03-30
 
 ### Added

@@ -10,6 +10,7 @@ import {
   fetchStats,
   startPipeline,
   fetchPipelineProgress,
+  fetchActiveProject,
   PipelineStatusType,
 } from "@/lib/api";
 import Modal from "@/components/Modal";
@@ -36,6 +37,11 @@ function getNestedValue(obj: any, path: string | null): number | null {
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const [showRunAllModal, setShowRunAllModal] = useState(false);
+
+  const { data: activeProject } = useQuery({
+    queryKey: ["active-project"],
+    queryFn: fetchActiveProject,
+  });
 
   // Check if pipeline is already running on mount
   const { data: progress } = useQuery({
@@ -96,9 +102,16 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <h1 className="text-3xl font-bold text-text-primary tracking-tight">
-        Dashboard
-      </h1>
+      <div>
+        <h1 className="text-3xl font-bold text-text-primary tracking-tight">
+          Dashboard
+        </h1>
+        {activeProject?.display_name && (
+          <p className="text-sm text-text-secondary mt-1">
+            {activeProject.display_name}
+          </p>
+        )}
+      </div>
 
       {/* Stat cards row */}
       <div data-tutorial="stat-cards" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

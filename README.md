@@ -16,6 +16,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 - **Export**: BibTeX (.bib) for LaTeX/Zotero + CSV for Excel
 - **PDF download & viewer**: Download papers via Elsevier (institutional), arXiv, Unpaywall, Semantic Scholar — view inline in web app
 - **Background pipeline**: Run search → dedup → screen in background with live progress, cancellation, and rate limit handling
+- **Multi-project management**: Save, switch, duplicate, export/import projects — each with isolated config + data
 - **Web dashboard**: Real-time pipeline stepper, stat cards, PRISMA flow diagram, PDF browser, eligibility filters
 
 ## Quick Start
@@ -131,6 +132,28 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | `stop_pipeline` | Cancel running pipeline (stops after current step) |
 | `start_pipeline_step` | Run a single step (search, dedup, or screen) |
 
+## Multi-Project Support
+
+Each literature review is stored as an isolated project with its own config and data:
+
+```
+projects/
+├── gfm-agriculture/
+│   ├── config.yaml
+│   └── prisma_output/
+├── dl-medical/
+│   ├── config.yaml
+│   └── prisma_output/
+└── .active_project              # tracks which project is loaded
+```
+
+- **Switch projects** without losing data — each project has its own pipeline state
+- **Auto-migration**: Existing `config.yaml` + `prisma_output/` are automatically copied into `projects/` on first run (originals preserved for CLI)
+- **Export/Import**: Share projects as `.zip` files
+- **Duplicate**: Clone a project to start a new review from the same config
+
+Manage projects via the web UI (`/projects`) or REST API (`/api/projects`).
+
 ## Output Files
 
 ```
@@ -202,7 +225,7 @@ Also available in `docs/`:
 ## Roadmap
 
 - **v1.0**: CLI + MCP server with two-pass screening
-- **v1.2** (current): Background pipeline sessions, web dashboard, 15 MCP tools
+- **v1.2** (current): Background pipeline sessions, web dashboard, 15 MCP tools, multi-project management
 - **v2.0** (planned): Drag-and-drop config builder, interactive PRISMA flow diagrams, multi-user support
 
 ## How to Cite

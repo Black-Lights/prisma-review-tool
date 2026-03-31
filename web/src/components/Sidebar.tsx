@@ -11,11 +11,16 @@ import {
   HardDriveDownload,
   Plug,
   HelpCircle,
+  FolderOpen,
+  ChevronRight,
 } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { fetchActiveProject } from "@/lib/api";
 import { useTutorial } from "@/context/TutorialContext";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { label: "Projects", href: "/projects", icon: FolderOpen },
   { label: "Screening", href: "/screening", icon: ListFilter },
   { label: "Eligibility", href: "/eligibility", icon: CheckSquare },
   { label: "All Papers", href: "/papers", icon: Library },
@@ -27,6 +32,10 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { start } = useTutorial();
+  const { data: activeProject } = useQuery({
+    queryKey: ["active-project"],
+    queryFn: fetchActiveProject,
+  });
 
   return (
     <aside data-tutorial="sidebar" className="fixed left-0 top-0 h-screen w-64 bg-bg-surface border-r border-border-glass flex flex-col z-50">
@@ -68,6 +77,20 @@ export function Sidebar() {
           <span className="text-text-muted text-xs font-light">Tool</span>
         </div>
       </div>
+
+      {/* Active project indicator */}
+      {activeProject?.active && (
+        <Link
+          href="/projects"
+          className="mx-3 mb-2 px-3 py-2 rounded-lg bg-bg-glass border border-border-glass hover:border-border-glass-hover flex items-center gap-2 group transition-colors"
+        >
+          <FolderOpen size={14} className="text-primary shrink-0" />
+          <span className="text-xs text-text-secondary truncate flex-1">
+            {activeProject.display_name || activeProject.active}
+          </span>
+          <ChevronRight size={12} className="text-text-muted group-hover:text-primary shrink-0" />
+        </Link>
+      )}
 
       {/* Navigation */}
       <nav className="flex-1 px-3 mt-2 space-y-1">

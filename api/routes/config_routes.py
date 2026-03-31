@@ -14,6 +14,11 @@ router = APIRouter(tags=["config"])
 
 
 def _config_path() -> Path:
+    projects_dir = Path(__file__).parent.parent.parent / "projects"
+    active_file = projects_dir / ".active_project"
+    if active_file.exists():
+        name = active_file.read_text(encoding="utf-8").strip()
+        return projects_dir / name / "config.yaml"
     return Path(__file__).parent.parent.parent / "config.yaml"
 
 

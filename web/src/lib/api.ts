@@ -79,6 +79,39 @@ export interface DownloadLogResponse {
   papers: DownloadEntry[];
 }
 
+// Projects
+export const fetchProjects = () => request<ProjectListResponse>("/api/projects");
+export const fetchActiveProject = () => request<ActiveProjectResponse>("/api/projects/active");
+export const createProject = (name: string) =>
+  request<{ status: string; name: string; display_name: string }>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+export const switchProject = (name: string) =>
+  request<{ status: string; active: string }>(`/api/projects/${encodeURIComponent(name)}/switch`, {
+    method: "POST",
+  });
+export const deleteProject = (name: string) =>
+  request<{ status: string }>(`/api/projects/${encodeURIComponent(name)}`, {
+    method: "DELETE",
+  });
+export const duplicateProject = (name: string, newName: string) =>
+  request<{ status: string; name: string }>(`/api/projects/${encodeURIComponent(name)}/duplicate`, {
+    method: "POST",
+    body: JSON.stringify({ new_name: newName }),
+  });
+export const exportProject = async (name: string) => {
+  const res = await fetch(`${API}/api/projects/export/${encodeURIComponent(name)}`);
+  if (!res.ok) throw new Error("Export failed");
+  return res.blob();
+};
+export const importProject = async (file: File) => {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${API}/api/projects/import`, { method: "POST", body: form });
+  return res.json() as Promise<{ status: string; name: string }>;
+};
+
 // Config
 export const fetchConfig = () => request<any>("/api/config");
 export const updateConfig = (data: any) =>
@@ -168,4 +201,25 @@ export interface PipelineProgress {
   warnings: string[];
   error: string | null;
   result: Record<string, any> | null;
+}
+
+export interface Project {
+  name: string;
+  display_name: string;
+  is_active: boolean;
+  paper_counts: {
+    search: number;
+    dedup: number;
+    screened: number;
+    eligible: number;
+  };
+}
+
+export interface ProjectListResponse {
+  projects: Project[];
+}
+
+export interface ActiveProjectResponse {
+  active: string | null;
+  display_name?: string;
 }

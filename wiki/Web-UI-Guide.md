@@ -241,7 +241,47 @@ Download open access PDFs and view them directly in the app.
 
 ---
 
-### 7. MCP Settings (`/mcp-settings`)
+### 7. Projects (`/projects`)
+
+Manage multiple literature review projects from a single installation.
+
+#### Features
+
+- **Project cards**: Each project shows its name, slug, paper counts (search, dedup, screened, eligible), and an "Active" badge
+- **Create**: Click "New Project" to create a new review with a fresh config from the template
+- **Switch**: Click "Switch" on any project card to load its config and data — all dashboard stats, screening decisions, and pipeline state switch instantly
+- **Duplicate**: Clone an existing project (copies config + all data) to start a similar review
+- **Export**: Download a project as a `.zip` archive for backup or sharing
+- **Import**: Upload a `.zip` to create a new project from an archive
+- **Delete**: Remove a project with confirmation modal (irreversible)
+
+#### How it works
+
+Each project is an isolated directory under `projects/`:
+```
+projects/
+├── gfm-agriculture/
+│   ├── config.yaml
+│   └── prisma_output/
+├── dl-medical/
+│   ├── config.yaml
+│   └── prisma_output/
+└── .active_project
+```
+
+On first run, if you already have a `config.yaml` and `prisma_output/` at the repo root, they are **automatically migrated** into a new project directory. The originals are preserved for CLI backward compatibility.
+
+#### Switching projects
+
+When you switch projects:
+1. The backend reloads the new project's config
+2. The session manager resets (new pipeline state)
+3. All frontend queries are invalidated — stats, papers, and pipeline status refresh
+4. The pipeline cannot be running when you switch (the UI blocks this)
+
+---
+
+### 8. MCP Settings (`/mcp-settings`)
 
 Configure AI agent connections for automated paper screening.
 
@@ -267,7 +307,9 @@ Each snippet can be copied with one click.
 
 ### Sidebar
 
-The sidebar provides navigation to all 7 pages. The currently active page is highlighted in cyan. At the bottom:
+The sidebar provides navigation to all 8 pages. The currently active page is highlighted in cyan.
+
+- **Active project indicator**: Below the logo, a compact card shows the name of the current project. Click it to go to the Projects page.
 - **"Take Tour"** button: Restart the interactive tutorial at any time
 - Version number and GitHub link
 
