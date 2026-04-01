@@ -139,7 +139,7 @@ Next: [Full Workflow Tutorial](Full-Workflow-Tutorial)
 
 ## Optional: MCP Setup for AI Screening
 
-If you want AI-assisted screening, see [MCP & AI Screening](MCP-&-AI-Screening).
+If you want AI-assisted screening, see [MCP & AI Screening](MCP-and-AI-Screening).
 
 ## Updating
 

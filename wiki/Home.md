@@ -6,15 +6,15 @@ Welcome to the prisma_tool documentation. This tool automates PRISMA 2020 system
 
 | Page | Description |
 |------|-------------|
-| [Installation & Setup](Installation-&-Setup) | Python setup, dependencies, first run |
+| [Installation & Setup](Installation-and-Setup) | Python setup, dependencies, first run |
 | [Configuration Guide](Configuration-Guide) | How to write config.yaml for any research topic |
 | [Full Workflow Tutorial](Full-Workflow-Tutorial) | End-to-end walkthrough from search to final papers |
-| [MCP & AI Screening](MCP-&-AI-Screening) | Set up AI-assisted screening with any MCP agent |
+| [MCP & AI Screening](MCP-and-AI-Screening) | Set up AI-assisted screening with any MCP agent |
 | [CLI Reference](CLI-Reference) | All commands, options, and output formats |
 | [MCP Tools API Reference](MCP-Tools-API-Reference) | All MCP tools with parameters and response formats |
 | [PRISMA 2020 Compliance](PRISMA-2020-Compliance) | How the tool aligns with PRISMA 2020, checklist mapping |
 | [Writing Your Methodology](Writing-Your-Methodology) | Template for describing the tool in a thesis or paper |
-| [Troubleshooting & FAQ](Troubleshooting-&-FAQ) | Common issues and solutions |
+| [Troubleshooting & FAQ](Troubleshooting-and-FAQ) | Common issues and solutions |
 
 ## What This Tool Does
 

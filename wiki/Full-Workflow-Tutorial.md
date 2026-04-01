@@ -158,7 +158,7 @@ ELSE → MAYBE (needs review)
 
 ## Step 5: AI Review of "Maybe" Papers (Optional)
 
-> Requires MCP setup. See [MCP & AI Screening](MCP-&-AI-Screening).
+> Requires MCP setup. See [MCP & AI Screening](MCP-and-AI-Screening).
 
 In your MCP-compatible agent (Claude Code, Codex, Copilot, etc.), say:
 

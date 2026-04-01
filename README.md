@@ -237,15 +237,15 @@ Only [2% of systematic review tools](https://doi.org/10.1016/j.jclinepi.2021.10.
 
 | Guide | Description |
 |-------|-------------|
-| [Installation & Setup](wiki/Installation-&-Setup) | Python setup, dependencies, first run |
-| [Configuration Guide](wiki/Configuration-Guide) | How to write config.yaml for any topic |
-| [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial) | End-to-end walkthrough |
-| [MCP & AI Screening](wiki/MCP-&-AI-Screening) | Setup with any MCP agent |
-| [CLI Reference](wiki/CLI-Reference) | All commands and options |
-| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference) | All 15 MCP tools with params and responses |
-| [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance) | Checklist mapping, flow diagram alignment |
-| [Writing Your Methodology](wiki/Writing-Your-Methodology) | Template for thesis/paper methods section |
-| [Troubleshooting & FAQ](wiki/Troubleshooting-&-FAQ) | Common issues and solutions |
+| [Installation & Setup](wiki/Installation-and-Setup.md) | Python setup, dependencies, first run |
+| [Configuration Guide](wiki/Configuration-Guide.md) | How to write config.yaml for any topic |
+| [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial.md) | End-to-end walkthrough |
+| [MCP & AI Screening](wiki/MCP-and-AI-Screening.md) | Setup with any MCP agent |
+| [CLI Reference](wiki/CLI-Reference.md) | All commands and options |
+| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference.md) | All 15 MCP tools with params and responses |
+| [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance.md) | Checklist mapping, flow diagram alignment |
+| [Writing Your Methodology](wiki/Writing-Your-Methodology.md) | Template for thesis/paper methods section |
+| [Troubleshooting & FAQ](wiki/Troubleshooting-and-FAQ.md) | Common issues and solutions |
 
 Also available in `docs/`:
 - [MCP Setup Guide](docs/MCP_SETUP.md) — Quick MCP setup reference

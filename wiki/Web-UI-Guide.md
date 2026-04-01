@@ -13,7 +13,7 @@ python start.py
 
 This installs all dependencies (first run only), starts both the API server and web frontend, and opens the dashboard in your browser. Press **Ctrl+C** to stop.
 
-See [Installation & Setup](Installation-&-Setup) for all launcher options (`--port`, `--no-browser`, etc.).
+See [Installation & Setup](Installation-and-Setup) for all launcher options (`--port`, `--no-browser`, etc.).
 
 ### First-Time Tutorial
 
@@ -356,7 +356,7 @@ The entire app uses a dark theme with glassmorphism design:
 
 ## Troubleshooting
 
-See [Troubleshooting & FAQ](Troubleshooting-&-FAQ) for common issues including:
+See [Troubleshooting & FAQ](Troubleshooting-and-FAQ) for common issues including:
 - Dashboard shows stale numbers
 - PDF viewer shows "Failed to fetch"
 - Filters not working
