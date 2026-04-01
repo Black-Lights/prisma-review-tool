@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-bg-base: #0a0e1a;
+  --color-bg-surface: #0f1524;
+  --color-bg-elevated: rgba(15, 21, 36, 0.75);
+  --color-bg-glass: rgba(15, 21, 36, 0.6);
+  --color-border-glass: rgba(125, 211, 252, 0.1);
+  --color-border-glass-hover: rgba(125, 211, 252, 0.25);
+  --color-primary: #7dd3fc;
+  --color-primary-dim: rgba(125, 211, 252, 0.15);
+  --color-text-primary: #e0e8f0;
+  --color-text-secondary: #a0b4c4;
+  --color-text-muted: #607080;
+  --color-accent-green: #34d399;
+  --color-accent-amber: #fbbf24;
+  --color-accent-red: #f87171;
+  --color-accent-purple: #c084fc;
+  --font-display: "DM Sans", system-ui, sans-serif;
+  --font-body: "DM Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+@font-face {
+  font-family: "DM Sans";
+  font-style: normal;
+  font-display: swap;
+  src: url("https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap");
+}
+
+body {
+  background: var(--color-bg-base);
+  color: var(--color-text-primary);
+  font-family: var(--font-body);
+  min-height: 100vh;
+}
+
+/* Glass morphism utilities */
+.glass {
+  background: var(--color-bg-glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border-glass);
+  border-radius: 1rem;
+}
+
+.glass-elevated {
+  background: var(--color-bg-elevated);
+  backdrop-filter: blur(24px);
+  border: 1px solid var(--color-border-glass);
+  border-radius: 1rem;
+}
+
+.glass-input {
+  background: rgba(20, 28, 46, 0.4);
+  border: 1px solid var(--color-border-glass);
+  border-radius: 0.5rem;
+  padding: 0.625rem 1rem;
+  color: var(--color-text-primary);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.glass-input:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 15px rgba(125, 211, 252, 0.1);
+}
+
+.glass-input::placeholder {
+  color: var(--color-text-muted);
+}
+
+/* Fix select dropdowns to match dark theme */
+select.glass-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a0b4c4' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.25rem;
+}
+
+select.glass-input option {
+  background: #0f1524;
+  color: #e0e8f0;
+}
+
+/* Glow effects */
+.glow-primary {
+  box-shadow: 0 0 20px rgba(125, 211, 252, 0.15);
+}
+
+.glow-green {
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.15);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(125, 211, 252, 0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(125, 211, 252, 0.3);
+}
+
+/* Smooth transitions */
+* {
+  transition-property: background-color, border-color, box-shadow, opacity;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
+}

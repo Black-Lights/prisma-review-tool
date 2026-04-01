@@ -267,6 +267,43 @@ You can then use MCP for AI screening separately.
 
 ---
 
+## Background Pipeline (Web Dashboard)
+
+If you're using the web dashboard instead of the CLI, the pipeline runs in the background:
+
+1. **Start**: Click "Run All" on the dashboard — the pipeline starts immediately and you can navigate to other pages while it runs
+2. **Monitor**: The pipeline stepper animates in real-time, showing the current step and elapsed time
+3. **Warnings**: If a source is rate-limited (e.g., Semantic Scholar), the dashboard shows a warning but the pipeline continues with partial results
+4. **Stop**: Click "Stop" to cancel after the current step — completed results are preserved
+5. **Reload**: Refresh the page at any time — progress survives because state is persisted to disk
+6. **Restart recovery**: If the server crashes mid-pipeline, restarting it will show the pipeline as "failed" with the last known state
+
+You can also start the pipeline from an MCP agent (e.g., Claude Code) and monitor it in the dashboard, or vice versa — they share the same state.
+
+---
+
+## Web Dashboard Pages
+
+| Page | URL | Purpose |
+|------|-----|---------|
+| **Dashboard** | `/` | Stats, PRISMA flow diagram, pipeline stepper, Run All button |
+| **Screening** | `/screening` | Review "maybe" papers, include/exclude with reasons |
+| **Eligibility** | `/eligibility` | Second-pass stricter review of included papers |
+| **All Papers** | `/papers` | Browse all papers with filters (decision, source, eligibility) |
+| **Settings** | `/settings` | Configure sources, queries, keywords, thresholds |
+| **Downloads** | `/downloads` | Download open access PDFs, view them inline |
+| **MCP Settings** | `/mcp-settings` | MCP server configuration for AI agents |
+
+### PRISMA Flow Diagram
+
+The dashboard shows an interactive PRISMA 2020 flow diagram that matches the official template (Page et al., BMJ 2021). It auto-updates as you screen papers. Click "Download PNG" to save a high-resolution image for your thesis.
+
+### PDF Viewer
+
+After downloading papers, go to the Downloads page to browse them. Click "View" to read a PDF inline without leaving the app.
+
+---
+
 ## Tips
 
 1. **Save your config.yaml** — it IS your review protocol. Include it in your thesis supplementary materials.

@@ -158,6 +158,49 @@ The more specific your criteria, the better the screening decisions.
 
 ---
 
+## Pipeline Management via MCP
+
+You can start, monitor, and stop the entire pipeline directly from your AI agent — no CLI or web dashboard needed.
+
+### Starting the pipeline
+
+Tell your agent:
+```
+Start the search pipeline using prisma-review tools.
+```
+
+The agent calls `start_pipeline`, which launches search → dedup → screen in a background thread. Results are returned immediately with a session ID.
+
+### Monitoring progress
+
+```
+Check pipeline progress using prisma-review tools.
+```
+
+The agent calls `get_pipeline_progress` to see the current step, completed steps, and any warnings (e.g., rate-limited sources).
+
+### Stopping the pipeline
+
+```
+Stop the running pipeline.
+```
+
+The agent calls `stop_pipeline`. The pipeline stops after the current step finishes — completed results are preserved.
+
+### Running individual steps
+
+```
+Run just the dedup step using prisma-review tools.
+```
+
+The agent calls `start_pipeline_step(step="dedup")` to run a single step in background.
+
+### Shared state
+
+The MCP tools and the web dashboard share the same pipeline state. If you start a pipeline from MCP, the web dashboard shows live progress. If you stop from the dashboard, the MCP agent sees the cancellation.
+
+---
+
 ## How Decisions Are Stored
 
 Every decision is saved with full transparency:

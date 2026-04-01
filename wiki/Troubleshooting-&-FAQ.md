@@ -124,6 +124,34 @@ python -m prisma_review report         # Regenerates diagram
 
 ---
 
+### Pipeline / Background Execution
+
+**Pipeline seems stuck**
+
+The search step makes real API calls to arXiv, OpenAlex, and Semantic Scholar. Semantic Scholar has aggressive rate limiting (30-90 second backoffs). Check progress:
+- Web dashboard: The stepper shows the current step and elapsed time
+- API: `GET /api/pipeline/progress` returns the current state
+- MCP: Call `get_pipeline_progress()`
+
+If you've been waiting 10+ minutes on the search step, the APIs are likely rate-limiting. You can stop the pipeline and retry later, or reduce `max_results_per_query` in config.yaml.
+
+**Search returned 0 results for some sources**
+
+This usually means rate limiting. The pipeline reports these as warnings (visible in the progress response). The pipeline continues with partial results — it does NOT fail. You can re-run the search step later for the missing sources.
+
+**Pipeline crashed or shows "failed"**
+
+Check the `error` field in the progress response for the stack trace. Common causes:
+- No papers found (forgot to run search before dedup)
+- Config file issues (invalid YAML)
+- Disk full (can't write output files)
+
+To restart: just click "Run All" again or call `start_pipeline()`.
+
+If the server crashed mid-pipeline, restarting it will show status "failed" with message "Pipeline was interrupted by server restart". The state is restored from disk.
+
+---
+
 ### Export
 
 **BibTeX file has formatting issues**
@@ -133,6 +161,26 @@ The BibTeX export uses basic formatting. For best results, import into a referen
 **CSV doesn't open correctly in Excel**
 
 The CSV uses UTF-8 encoding. In Excel: File → Open → select the CSV → choose "UTF-8" as the encoding.
+
+---
+
+### Web Dashboard
+
+**Dashboard shows stale numbers after re-running pipeline**
+
+The pipeline automatically clears stale eligibility data and download logs when screening re-runs. If you still see old numbers, refresh the page — stats are cached for 30 seconds.
+
+**PDF viewer shows "Failed to fetch"**
+
+The PDF viewer uses a same-origin proxy. Make sure both the backend (`uvicorn api.main:app --port 8001`) and frontend (`npx next dev -p 3001`) are running. The frontend must be started with `NEXT_PUBLIC_API_URL=http://localhost:8001`.
+
+**Eligibility page shows wrong progress (e.g., 457%)**
+
+This happens when old eligibility data from a previous run persists. Re-run the pipeline (click "Run All") — it will clear stale eligibility data automatically.
+
+**Filters on All Papers page don't work**
+
+Make sure you restarted the frontend after updating. The filter state is driven by React state synced to URL params.
 
 ---
 

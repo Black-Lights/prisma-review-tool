@@ -1,6 +1,6 @@
 # MCP Tools API Reference
 
-The prisma_tool MCP server exposes 10 tools. All tools return JSON strings.
+The prisma_tool MCP server exposes 15 tools. All tools return JSON strings.
 
 ---
 
@@ -275,3 +275,117 @@ Generate PRISMA flow diagram and export papers to BibTeX and CSV.
 ```
 
 Eligible paper exports only appear if eligibility screening has been done.
+
+---
+
+## Pipeline Management Tools
+
+### `start_pipeline`
+
+Start the full pipeline (search → dedup → screen) in a background thread.
+
+**Parameters:** None
+
+**Returns:**
+```json
+{
+  "status": "started",
+  "session_id": "fc7ca386f872"
+}
+```
+
+If a pipeline is already running:
+```json
+{
+  "error": "Pipeline is already running",
+  "status": "running"
+}
+```
+
+---
+
+### `get_pipeline_progress`
+
+Get the current pipeline progress. Fast (no disk I/O), safe to call frequently.
+
+**Parameters:** None
+
+**Returns:**
+```json
+{
+  "session_id": "fc7ca386f872",
+  "status": "running",
+  "current_step": "dedup",
+  "progress_message": "Removing duplicates...",
+  "started_at": "2026-03-30T12:00:00+00:00",
+  "finished_at": null,
+  "completed_steps": ["search"],
+  "warnings": ["semantic_scholar: returned 0 results (possible rate limiting or API error)"],
+  "error": null,
+  "result": null
+}
+```
+
+Status values: `idle`, `running`, `completed`, `failed`, `cancelled`
+
+When completed:
+```json
+{
+  "session_id": "fc7ca386f872",
+  "status": "completed",
+  "current_step": null,
+  "progress_message": "Pipeline completed successfully",
+  "started_at": "2026-03-30T12:00:00+00:00",
+  "finished_at": "2026-03-30T12:05:30+00:00",
+  "completed_steps": ["search", "dedup", "screen"],
+  "warnings": [],
+  "error": null,
+  "result": {
+    "search": {"status": "ok", "total": 2821, "sources": {"arxiv": 0, "openalex": 1500, "semantic": 1321}},
+    "dedup": {"status": "ok", "duplicates_removed": 135, "remaining": 2686},
+    "screen": {"status": "ok", "included": 206, "excluded": 844, "maybe": 1636}
+  }
+}
+```
+
+---
+
+### `stop_pipeline`
+
+Request cancellation of the running pipeline. The pipeline stops after the current step finishes — results from completed steps are preserved.
+
+**Parameters:** None
+
+**Returns:**
+```json
+{
+  "status": "cancel_requested"
+}
+```
+
+If no pipeline is running:
+```json
+{
+  "error": "No pipeline is currently running"
+}
+```
+
+---
+
+### `start_pipeline_step`
+
+Start a single pipeline step in a background thread.
+
+**Parameters:**
+| Param | Type | Description |
+|-------|------|-------------|
+| `step` | str | The step to run: "search", "dedup", or "screen" |
+
+**Returns:**
+```json
+{
+  "status": "started",
+  "session_id": "a261f3d89128",
+  "step": "dedup"
+}
+```

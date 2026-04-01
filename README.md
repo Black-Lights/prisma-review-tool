@@ -12,38 +12,59 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
   - **Pass 1**: Rule-based keyword screening (automated)
   - **Pass 2**: AI-assisted eligibility screening via MCP (stricter criteria)
 - **AI screening via MCP**: Works with Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, Amazon Q, Gemini CLI, and any MCP-compatible agent
-- **PRISMA flow diagram**: Auto-generated PNG + Markdown with all the numbers
+- **PRISMA 2020 flow diagram**: Interactive diagram matching the official template (Page et al., 2021) with download-as-PNG
 - **Export**: BibTeX (.bib) for LaTeX/Zotero + CSV for Excel
-- **PDF download**: Automatically download open access papers (arXiv, Unpaywall, Semantic Scholar)
+- **PDF download & viewer**: Download papers via Elsevier (institutional), arXiv, Unpaywall, Semantic Scholar — view inline in web app
+- **Background pipeline**: Run search → dedup → screen in background with live progress, cancellation, and rate limit handling
+- **Multi-project management**: Save, switch, duplicate, export/import projects — each with isolated config + data
+- **Web dashboard**: Real-time pipeline stepper, stat cards, PRISMA flow diagram, PDF browser, eligibility filters
 
 ## Quick Start
 
-### 1. Setup
+### One-Command Launch (Web App)
 
 ```bash
 cd prisma_tool
-python -m venv .venv
+python start.py
+```
 
+That's it. On first run it will:
+1. Create a Python virtual environment and install all dependencies
+2. Install Node.js packages for the web frontend
+3. Create `config.yaml` from the template (if missing)
+4. Start the API server and web app on available ports
+5. Open the dashboard in your browser
+
+Press **Ctrl+C** to stop — it kills both the backend and frontend automatically.
+
+```bash
+# Options
+python start.py --install     # Force reinstall all dependencies
+python start.py --port 9000   # Custom backend port (frontend = port + 1000)
+python start.py --no-browser  # Don't auto-open browser
+python start.py --cli         # CLI mode only (no web app)
+```
+
+> **Requirements:** Python 3.10+ and Node.js 18+ must be installed.
+
+### Configure
+
+Edit `config.yaml` with your search queries, date range, and screening keywords — or use the **Settings** page in the web app. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
+
+### CLI Usage (Without Web App)
+
+If you prefer the command line:
+
+```bash
+python start.py --cli     # Sets up venv, shows CLI commands
+
+# Then activate and run:
 # Windows
 .venv\Scripts\activate
 
 # Mac/Linux
 source .venv/bin/activate
 
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
-cp config.template.yaml config.yaml
-```
-
-Edit `config.yaml` with your search queries, date range, and screening keywords. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
-
-### 3. Run
-
-```bash
 # Full pipeline
 python -m prisma_review run-all
 
@@ -58,9 +79,21 @@ python -m prisma_review export        # Export .bib + .csv
 python -m prisma_review status
 ```
 
-### 4. (Optional) AI Screening with Any MCP-Compatible Agent
+### (Optional) AI Screening with Any MCP-Compatible Agent
 
 Set up the MCP server to let AI agents (Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, etc.) screen your papers. See [docs/MCP_SETUP.md](docs/MCP_SETUP.md).
+
+### Web App Features
+
+The web dashboard provides:
+- **Dashboard** — Real-time pipeline stepper, stat cards, interactive PRISMA 2020 flow diagram
+- **Screening** — Review papers with include/exclude/maybe decisions
+- **Eligibility** — Second-pass AI-assisted screening for stricter criteria
+- **All Papers** — Paginated, filterable, searchable table with export (CSV, BibTeX)
+- **Downloads** — PDF viewer for downloaded papers (Elsevier, arXiv, Unpaywall)
+- **Settings** — Edit config, search queries, keywords, API keys from the browser
+- **Projects** — Create, switch, duplicate, import/export literature review projects
+- **MCP Settings** — View connection instructions for AI agents
 
 ## Two-Pass Screening Workflow
 
@@ -119,7 +152,37 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | Tool | Description |
 |------|-------------|
 | `generate_report` | Generate PRISMA diagram + export .bib/.csv |
-| `download_eligible_papers` | Download open access PDFs (arXiv, Unpaywall, S2) |
+| `download_eligible_papers` | Download PDFs (Elsevier, arXiv, Unpaywall, S2) |
+
+### Pipeline Management
+| Tool | Description |
+|------|-------------|
+| `start_pipeline` | Start full pipeline in background (search → dedup → screen) |
+| `get_pipeline_progress` | Check pipeline status, current step, warnings |
+| `stop_pipeline` | Cancel running pipeline (stops after current step) |
+| `start_pipeline_step` | Run a single step (search, dedup, or screen) |
+
+## Multi-Project Support
+
+Each literature review is stored as an isolated project with its own config and data:
+
+```
+projects/
+├── gfm-agriculture/
+│   ├── config.yaml
+│   └── prisma_output/
+├── dl-medical/
+│   ├── config.yaml
+│   └── prisma_output/
+└── .active_project              # tracks which project is loaded
+```
+
+- **Switch projects** without losing data — each project has its own pipeline state
+- **Auto-migration**: Existing `config.yaml` + `prisma_output/` are automatically copied into `projects/` on first run (originals preserved for CLI)
+- **Export/Import**: Share projects as `.zip` files
+- **Duplicate**: Clone a project to start a new review from the same config
+
+Manage projects via the web UI (`/projects`) or REST API (`/api/projects`).
 
 ## Output Files
 
@@ -179,19 +242,21 @@ Only [2% of systematic review tools](https://doi.org/10.1016/j.jclinepi.2021.10.
 | [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial) | End-to-end walkthrough |
 | [MCP & AI Screening](wiki/MCP-&-AI-Screening) | Setup with any MCP agent |
 | [CLI Reference](wiki/CLI-Reference) | All commands and options |
-| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference) | All 10 MCP tools with params and responses |
+| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference) | All 15 MCP tools with params and responses |
 | [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance) | Checklist mapping, flow diagram alignment |
 | [Writing Your Methodology](wiki/Writing-Your-Methodology) | Template for thesis/paper methods section |
 | [Troubleshooting & FAQ](wiki/Troubleshooting-&-FAQ) | Common issues and solutions |
 
 Also available in `docs/`:
 - [MCP Setup Guide](docs/MCP_SETUP.md) — Quick MCP setup reference
+- [Session System](docs/SESSION_SYSTEM.md) — Background pipeline architecture
 - [Examples](docs/EXAMPLES.md) — Example configs for different research fields
 
 ## Roadmap
 
-- **v1.0** (current): CLI + MCP server with two-pass screening
-- **v2.0** (planned): Web-based UI/UX with visual screening dashboard, drag-and-drop config builder, and interactive PRISMA flow diagrams
+- **v1.0**: CLI + MCP server with two-pass screening
+- **v1.3** (current): One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
+- **v2.0** (planned): Desktop app (Tauri), drag-and-drop config builder, multi-user support
 
 ## How to Cite
 
@@ -210,8 +275,10 @@ If you use this tool in your research, please cite:
 ## Requirements
 
 - Python 3.10+
-- No API keys needed for basic usage (arXiv, OpenAlex, Semantic Scholar are free)
-- Optional: Scopus API key for broader coverage
+- Node.js 18+ (for the web app; not needed for CLI-only usage)
+- No API keys needed for basic usage (OpenAlex is free and recommended)
+- Optional: Scopus API key for broader coverage (get from [dev.elsevier.com](https://dev.elsevier.com), requires institutional access)
+- Optional: arXiv and Semantic Scholar (free but have aggressive rate limits)
 - Optional: Claude Code subscription for AI-assisted screening via MCP
 
 ## Contributing

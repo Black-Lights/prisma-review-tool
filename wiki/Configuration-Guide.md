@@ -93,9 +93,19 @@ This means your results may vary by source — this is expected and documented i
 
 ### API Keys
 
-- **arXiv, OpenAlex, Semantic Scholar**: Free, no key needed
-- **OpenAlex email**: Optional but recommended — increases rate limits
-- **Scopus**: Requires institutional API key from [dev.elsevier.com](https://dev.elsevier.com)
+- **OpenAlex**: Free, no key needed. Add your email for faster responses
+- **arXiv**: Free, no key needed. Rate-limits aggressively on pagination
+- **Semantic Scholar**: Free, no key needed. Heavy rate limits, may return 0 results
+- **Scopus**: Requires institutional API key. Best metadata quality
+
+#### Getting a Scopus API Key
+
+1. Go to [dev.elsevier.com](https://dev.elsevier.com) and register (use your university email)
+2. Create an API Key from the dashboard
+3. Copy the key to `config.yaml` under `api_keys.scopus`
+4. You must be on your institution's network (VPN or campus IP) for the API to work
+
+**Legal notice**: Scopus API usage must comply with the [Elsevier API Service Agreement](https://dev.elsevier.com/api_service_agreement.html). The API is for academic research only. Raw Scopus data (abstracts, metadata) should not be redistributed. The tool's `.gitignore` already excludes `prisma_output/` to prevent accidental commits of downloaded data.
 
 ## Screening Keywords
 

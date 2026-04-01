@@ -161,7 +161,7 @@ def cmd_download(config: Config) -> None:
     print(f"  Only open access papers will be downloaded (arXiv, Unpaywall, Semantic Scholar)")
     print()
 
-    stats = download_papers(papers, pdf_dir, email=config.openalex_email)
+    stats = download_papers(papers, pdf_dir, email=config.openalex_email, api_key=config.scopus_key)
 
     print()
     print(f"[DOWNLOAD] Done!")
