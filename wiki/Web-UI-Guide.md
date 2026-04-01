@@ -6,25 +6,14 @@ The PRISMA Review Tool includes a full web dashboard for managing your systemati
 
 ### Starting the App
 
-You need two terminals — one for the backend API and one for the frontend:
-
-**Terminal 1 — Backend:**
 ```bash
 cd prisma-review-tool
-.venv\Scripts\activate          # Windows
-# source .venv/bin/activate     # Mac/Linux
-uvicorn api.main:app --port 8001
+python start.py
 ```
 
-**Terminal 2 — Frontend:**
-```bash
-cd prisma-review-tool/web
-$env:NEXT_PUBLIC_API_URL="http://localhost:8001"   # PowerShell
-# export NEXT_PUBLIC_API_URL=http://localhost:8001  # Bash
-npx next dev -p 3001
-```
+This installs all dependencies (first run only), starts both the API server and web frontend, and opens the dashboard in your browser. Press **Ctrl+C** to stop.
 
-Open **http://localhost:3001** in your browser.
+See [Installation & Setup](Installation-&-Setup) for all launcher options (`--port`, `--no-browser`, etc.).
 
 ### First-Time Tutorial
 
