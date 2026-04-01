@@ -21,32 +21,50 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 
 ## Quick Start
 
-### 1. Setup
+### One-Command Launch (Web App)
 
 ```bash
 cd prisma_tool
-python -m venv .venv
+python start.py
+```
 
+That's it. On first run it will:
+1. Create a Python virtual environment and install all dependencies
+2. Install Node.js packages for the web frontend
+3. Create `config.yaml` from the template (if missing)
+4. Start the API server and web app on available ports
+5. Open the dashboard in your browser
+
+Press **Ctrl+C** to stop — it kills both the backend and frontend automatically.
+
+```bash
+# Options
+python start.py --install     # Force reinstall all dependencies
+python start.py --port 9000   # Custom backend port (frontend = port + 1000)
+python start.py --no-browser  # Don't auto-open browser
+python start.py --cli         # CLI mode only (no web app)
+```
+
+> **Requirements:** Python 3.10+ and Node.js 18+ must be installed.
+
+### Configure
+
+Edit `config.yaml` with your search queries, date range, and screening keywords — or use the **Settings** page in the web app. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
+
+### CLI Usage (Without Web App)
+
+If you prefer the command line:
+
+```bash
+python start.py --cli     # Sets up venv, shows CLI commands
+
+# Then activate and run:
 # Windows
 .venv\Scripts\activate
 
 # Mac/Linux
 source .venv/bin/activate
 
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-```bash
-cp config.template.yaml config.yaml
-```
-
-Edit `config.yaml` with your search queries, date range, and screening keywords. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
-
-### 3. Run
-
-```bash
 # Full pipeline
 python -m prisma_review run-all
 
@@ -61,9 +79,21 @@ python -m prisma_review export        # Export .bib + .csv
 python -m prisma_review status
 ```
 
-### 4. (Optional) AI Screening with Any MCP-Compatible Agent
+### (Optional) AI Screening with Any MCP-Compatible Agent
 
 Set up the MCP server to let AI agents (Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, etc.) screen your papers. See [docs/MCP_SETUP.md](docs/MCP_SETUP.md).
+
+### Web App Features
+
+The web dashboard provides:
+- **Dashboard** — Real-time pipeline stepper, stat cards, interactive PRISMA 2020 flow diagram
+- **Screening** — Review papers with include/exclude/maybe decisions
+- **Eligibility** — Second-pass AI-assisted screening for stricter criteria
+- **All Papers** — Paginated, filterable, searchable table with export (CSV, BibTeX)
+- **Downloads** — PDF viewer for downloaded papers (Elsevier, arXiv, Unpaywall)
+- **Settings** — Edit config, search queries, keywords, API keys from the browser
+- **Projects** — Create, switch, duplicate, import/export literature review projects
+- **MCP Settings** — View connection instructions for AI agents
 
 ## Two-Pass Screening Workflow
 
@@ -225,8 +255,8 @@ Also available in `docs/`:
 ## Roadmap
 
 - **v1.0**: CLI + MCP server with two-pass screening
-- **v1.2** (current): Background pipeline sessions, web dashboard, 15 MCP tools, multi-project management
-- **v2.0** (planned): Drag-and-drop config builder, interactive PRISMA flow diagrams, multi-user support
+- **v1.3** (current): One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
+- **v2.0** (planned): Desktop app (Tauri), drag-and-drop config builder, multi-user support
 
 ## How to Cite
 
@@ -245,6 +275,7 @@ If you use this tool in your research, please cite:
 ## Requirements
 
 - Python 3.10+
+- Node.js 18+ (for the web app; not needed for CLI-only usage)
 - No API keys needed for basic usage (OpenAlex is free and recommended)
 - Optional: Scopus API key for broader coverage (get from [dev.elsevier.com](https://dev.elsevier.com), requires institutional access)
 - Optional: arXiv and Semantic Scholar (free but have aggressive rate limits)
