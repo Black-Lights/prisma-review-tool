@@ -1,6 +1,8 @@
 # PRISMA Review Tool
 
+[![Version: 1.4.0](https://img.shields.io/badge/version-1.4.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-green.svg)](https://www.python.org)
 
 Automated systematic literature review following the [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) guidelines ([checklist](https://www.prisma-statement.org/prisma-2020-checklist) | [flow diagram](https://www.prisma-statement.org/prisma-2020-flow-diagram) | [Page et al., 2021](https://doi.org/10.1136/bmj.n71)). Search academic databases, deduplicate results, screen papers with keyword rules, and use AI-assisted screening via any MCP-compatible agent — all from the command line.
 
