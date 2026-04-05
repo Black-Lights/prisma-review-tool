@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.4] - 2026-04-05
+
+### Fixed
+- **PRISMA diagram: "Studies included" now only shows eligibility-passed papers** — per PRISMA 2020 (Page et al., BMJ 2021), first-pass keyword-screened papers are candidates for eligibility, not final inclusions. The diagram now shows "Pending eligibility screening" until papers are explicitly included/excluded via the Eligibility page or MCP tools. Previously, all first-pass included papers were incorrectly shown as "Studies included in review".
+
 ## [1.4.3] - 2026-04-05
 
 ### Fixed
