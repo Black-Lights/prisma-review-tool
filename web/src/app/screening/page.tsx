@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, RefreshCw, SlidersHorizontal } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
-import { fetchPapersToScreen, screenPaper, searchPapers, rescreenPapers, fetchStats } from "@/lib/api";
+import { fetchPapersToScreen, screenPaper, searchPapers, rescreenPapers, fetchStats, fetchConfig, updateConfig } from "@/lib/api";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 type FilterType = "all" | "maybe" | "include" | "exclude";
@@ -78,23 +78,44 @@ function ScreeningContent() {
   const remaining = data?.total_matching ?? 0;
 
   // Re-screen
-  const [rescreenHits, setRescreenHits] = useState(2);
   const [showRescreen, setShowRescreen] = useState(false);
 
-  // Load current min_include_hits from stats/config
+  // Load current config + stats
+  const { data: configData } = useQuery({
+    queryKey: ["config"],
+    queryFn: fetchConfig,
+    staleTime: 30_000,
+  });
   const { data: statsData } = useQuery({
     queryKey: ["stats"],
     queryFn: fetchStats,
     staleTime: 30_000,
   });
+  const configMinHits = configData?.screening?.rules?.min_include_hits ?? 2;
   const screenStats = (statsData as any)?.screen ?? {};
 
+  const [rescreenHits, setRescreenHits] = useState<number | null>(null);
+  // Sync with config once loaded
+  const effectiveHits = rescreenHits ?? configMinHits;
+
   const rescreenMutation = useMutation({
-    mutationFn: (hits: number) => rescreenPapers(hits),
+    mutationFn: async (hits: number) => {
+      const result = await rescreenPapers(hits);
+      // Save the new threshold to config so Settings page stays in sync
+      if (configData) {
+        const updated = { ...configData };
+        if (!updated.screening) updated.screening = { rules: {} };
+        if (!updated.screening.rules) updated.screening.rules = {};
+        updated.screening.rules.min_include_hits = hits;
+        await updateConfig(updated);
+      }
+      return result;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["papers-to-screen"] });
       queryClient.invalidateQueries({ queryKey: ["stats"] });
       queryClient.invalidateQueries({ queryKey: ["all-papers"] });
+      queryClient.invalidateQueries({ queryKey: ["config"] });
       setShowRescreen(false);
     },
   });
@@ -134,7 +155,7 @@ function ScreeningContent() {
                 type="number"
                 min={1}
                 max={10}
-                value={rescreenHits}
+                value={effectiveHits}
                 onChange={(e) => setRescreenHits(parseInt(e.target.value) || 1)}
                 className="glass-input w-20 text-center text-sm"
               />
@@ -153,7 +174,7 @@ function ScreeningContent() {
               </span>
             )}
             <button
-              onClick={() => rescreenMutation.mutate(rescreenHits)}
+              onClick={() => rescreenMutation.mutate(effectiveHits)}
               disabled={rescreenMutation.isPending}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 disabled:opacity-50 transition-colors cursor-pointer ml-auto"
             >
