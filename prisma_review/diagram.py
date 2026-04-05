@@ -198,12 +198,13 @@ def generate_png_diagram(state: dict, path: Path) -> None:
              color="#FFEBEE", border="#C62828")
     draw_arrow(4.0, 6.4, 5.5, 6.4)
 
-    # INCLUDED
+    # INCLUDED — per PRISMA 2020, only papers that passed eligibility screening
+    # First-pass included are candidates, NOT final until eligibility is done
     ax.text(0.3, 5.1, "INCLUDED", fontsize=10, fontweight="bold", color="#2E7D32")
     if has_eligibility:
         incl_text = f"Studies included\nin review\n(n = {elig_included})\nReports of included\nstudies\n(n = {elig_included})"
     else:
-        incl_text = f"Studies included\nin review\n(n = {included})\nReports of included\nstudies\n(n = {included})"
+        incl_text = "Studies included\nin review\nPending eligibility\nscreening"
     draw_box(0.5, 3.5, 3.5, 1.5,
              incl_text,
              color="#E8F5E9", border="#2E7D32")

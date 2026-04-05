@@ -81,7 +81,9 @@ export default function PrismaFlowDiagram({ stats }: Props) {
   const eligIncluded = (eligibility as any).included ?? 0;
   const eligExcluded = (eligibility as any).excluded ?? 0;
   const hasEligibility = eligInput > 0 && ((eligibility as any).screened ?? 0) > 0;
-  const finalIncluded = hasEligibility ? eligIncluded : screenIncluded;
+  // Per PRISMA 2020: "Studies included" = ONLY papers that passed eligibility screening
+  // First-pass included are just candidates — they are NOT final until eligibility is done
+  const finalIncluded = hasEligibility ? eligIncluded : 0;
   const sourceEntries = Object.entries(search).filter(([k]) => k !== "total");
 
   /*
@@ -225,9 +227,13 @@ export default function PrismaFlowDiagram({ stats }: Props) {
             <div className={`flex-1 ${grid}`} style={cols}>
               <div className={box}>
                 <b>Studies included in review</b><br />
-                (n = {n(finalIncluded)})<br />
-                <b>Reports of included studies</b><br />
-                (n = {n(finalIncluded)})
+                {hasEligibility ? (
+                  <>(n = {n(finalIncluded)})<br />
+                  <b>Reports of included studies</b><br />
+                  (n = {n(finalIncluded)})</>
+                ) : (
+                  <span className="italic text-gray-400">Pending eligibility screening</span>
+                )}
               </div>
               <div />
               <div />
