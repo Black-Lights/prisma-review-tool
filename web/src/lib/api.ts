@@ -43,7 +43,7 @@ export const fetchAllPapers = (page = 1, perPage = 20, decision = "all", source 
 
 // Re-screen with different threshold
 export const rescreenPapers = (minIncludeHits: number) =>
-  request<{ status: string; included: number; excluded: number; maybe: number }>(
+  request<{ status: string; min_include_hits: number; included: number; excluded: number; maybe: number }>(
     `/api/papers/rescreen?min_include_hits=${minIncludeHits}`,
     { method: "POST" },
   );

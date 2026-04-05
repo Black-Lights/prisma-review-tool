@@ -112,11 +112,8 @@ function ScreeningContent() {
       return result;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["papers-to-screen"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-      queryClient.invalidateQueries({ queryKey: ["all-papers"] });
-      queryClient.invalidateQueries({ queryKey: ["config"] });
-      setShowRescreen(false);
+      // Invalidate everything — screening changes affect all pages
+      queryClient.invalidateQueries();
     },
   });
 
@@ -183,9 +180,15 @@ function ScreeningContent() {
             </button>
           </div>
           {rescreenMutation.data && (
-            <p className="text-xs text-accent-green mt-2">
-              Done: {rescreenMutation.data.included} included, {rescreenMutation.data.excluded} excluded, {rescreenMutation.data.maybe} maybe
-            </p>
+            <div className="mt-3 p-3 rounded-lg bg-accent-green/10 border border-accent-green/20">
+              <p className="text-sm text-accent-green font-medium">
+                Re-screening complete (min hits = {rescreenMutation.data.min_include_hits})
+              </p>
+              <p className="text-xs text-text-secondary mt-1">
+                {rescreenMutation.data.included} included {"\u00B7"} {rescreenMutation.data.maybe} maybe {"\u00B7"} {rescreenMutation.data.excluded} excluded
+                {" \u2014 "} {rescreenMutation.data.included} papers moved to Eligibility page
+              </p>
+            </div>
           )}
         </GlassCard>
       )}
