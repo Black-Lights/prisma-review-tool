@@ -496,20 +496,20 @@ export default function SettingsPage() {
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <label className="block text-sm text-text-secondary">Scopus API Key (optional, needs institutional access)</label>
+              <label className="block text-sm text-text-secondary">Scopus API Key (optional, free to get)</label>
               <div className="relative group">
                 <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">
                   i
                 </button>
                 <div className="absolute right-0 bottom-7 w-80 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1.5 shadow-xl">
                   <p className="text-text-primary font-medium">Elsevier Scopus API Key</p>
-                  <p className="text-text-muted">1. Go to <span className="text-primary">dev.elsevier.com</span> and create an account</p>
+                  <p className="text-text-muted">1. Go to <span className="text-primary">dev.elsevier.com</span> and create an account (free)</p>
                   <p className="text-text-muted">2. Click &quot;Create API Key&quot;</p>
                   <p className="text-text-muted">3. Label: <span className="text-primary">PRISMA Review Tool</span></p>
                   <p className="text-text-muted">4. Website: <span className="text-primary">http://localhost</span></p>
                   <p className="text-text-muted">5. Copy the generated key and paste it here</p>
-                  <p className="text-accent-amber">Requires institutional access (university VPN or campus network).</p>
-                  <p className="text-text-muted">This key also enables Elsevier PDF downloads for paywalled papers your institution subscribes to.</p>
+                  <p className="text-accent-amber">The API key is free for anyone. For full results (abstracts, complete records), use from a campus network or university VPN. Basic metadata (titles, authors, DOIs) works from anywhere.</p>
+                  <p className="text-text-muted">This key also enables Elsevier PDF downloads for papers your institution subscribes to.</p>
                 </div>
               </div>
             </div>
