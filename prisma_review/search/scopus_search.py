@@ -71,12 +71,14 @@ def search_scopus(
     retries = 0
     max_retries = 3
 
+    view = "COMPLETE"  # Try COMPLETE first (includes abstracts, needs institutional IP)
+
     while start < max_results:
         params = {
             "query": scopus_query,
             "count": min(PAGE_SIZE, max_results - start),
             "start": start,
-            "view": "COMPLETE",  # Includes abstract
+            "view": view,
         }
 
         try:
@@ -90,6 +92,12 @@ def search_scopus(
                 wait = 30 * retries
                 print(f"  [!] Rate limited, waiting {wait}s (attempt {retries}/{max_retries})...")
                 time.sleep(wait)
+                continue
+
+            if resp.status_code == 401 and view == "COMPLETE":
+                # COMPLETE view requires institutional IP — fall back to STANDARD
+                print("  [!] COMPLETE view unauthorized (not on campus?), falling back to STANDARD view")
+                view = "STANDARD"
                 continue
 
             if resp.status_code == 401:

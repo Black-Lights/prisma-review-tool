@@ -199,6 +199,16 @@ class SessionManager:
 
     def _run_pipeline(self, steps: list[str], config: Config) -> None:
         accumulated: dict = {}
+
+        # Clear stale output from previous runs so we get fresh results
+        if "search" in steps:
+            import shutil
+            for subdir in ["01_search", "02_dedup", "03_screen", "03b_eligibility", "04_export"]:
+                path = config.output_dir / subdir
+                if path.exists():
+                    shutil.rmtree(path)
+                path.mkdir(parents=True, exist_ok=True)
+
         self._persist_to_disk(config)
         try:
             for step in steps:
