@@ -121,6 +121,53 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     description: "Set include and exclude keywords. Papers matching enough include keywords (and no exclude keywords) pass the first screening.",
     page: "/settings",
   },
+  // API Keys (settings)
+  {
+    id: "api-keys",
+    target: '[data-tutorial="api-keys"]',
+    title: "API Keys",
+    description: "Optional but recommended. Add your Scopus API key for broader search coverage and Elsevier PDF downloads. Hover the (i) buttons for step-by-step instructions on getting your key from dev.elsevier.com — use 'PRISMA Review Tool' as the key name and 'http://localhost' as the website.",
+    page: "/settings",
+  },
+  // Projects
+  {
+    id: "projects-intro",
+    target: '[data-tutorial="projects-header"]',
+    title: "Projects",
+    description: "Manage multiple literature reviews. Create, switch, duplicate, or export projects — each with its own config and data.",
+    page: "/projects",
+  },
+  // Eligibility
+  {
+    id: "eligibility-intro",
+    target: '[data-tutorial="eligibility-header"]',
+    title: "Eligibility Screening",
+    description: "Second-pass screening for stricter criteria. Review first-pass included papers and apply your domain-specific eligibility rules to narrow down to the most relevant studies.",
+    page: "/eligibility",
+  },
+  // Downloads
+  {
+    id: "downloads-intro",
+    target: '[data-tutorial="downloads-header"]',
+    title: "Downloads",
+    description: "Download open access PDFs for your eligible papers. Supports Elsevier (institutional access), arXiv, Unpaywall, and Semantic Scholar.",
+    page: "/downloads",
+  },
+  {
+    id: "downloads-viewer",
+    target: '[data-tutorial="downloads-table"]',
+    title: "PDF Viewer",
+    description: "Click View to read papers inline. Filter by status — Downloaded, No Open Access, or Failed.",
+    page: "/downloads",
+  },
+  // Export (on papers page)
+  {
+    id: "export-buttons",
+    target: '[data-tutorial="export-buttons"]',
+    title: "Export Papers",
+    description: "Export filtered papers as CSV or BibTeX. Choose which fields to include — like Scopus export. Exports only the papers matching your current filters.",
+    page: "/papers",
+  },
   // MCP Settings
   {
     id: "mcp-intro",

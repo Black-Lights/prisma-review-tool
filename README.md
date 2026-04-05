@@ -1,6 +1,8 @@
 # PRISMA Review Tool
 
+[![Version: 1.4.0](https://img.shields.io/badge/version-1.4.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-green.svg)](https://www.python.org)
 
 Automated systematic literature review following the [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) guidelines ([checklist](https://www.prisma-statement.org/prisma-2020-checklist) | [flow diagram](https://www.prisma-statement.org/prisma-2020-flow-diagram) | [Page et al., 2021](https://doi.org/10.1136/bmj.n71)). Search academic databases, deduplicate results, screen papers with keyword rules, and use AI-assisted screening via any MCP-compatible agent — all from the command line.
 
@@ -13,7 +15,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
   - **Pass 2**: AI-assisted eligibility screening via MCP (stricter criteria)
 - **AI screening via MCP**: Works with Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, Amazon Q, Gemini CLI, and any MCP-compatible agent
 - **PRISMA 2020 flow diagram**: Interactive diagram matching the official template (Page et al., 2021) with download-as-PNG
-- **Export**: BibTeX (.bib) for LaTeX/Zotero + CSV for Excel
+- **Flexible export**: CSV with Elsevier-style field picker + BibTeX — exports only filtered papers, choose which columns to include
 - **PDF download & viewer**: Download papers via Elsevier (institutional), arXiv, Unpaywall, Semantic Scholar — view inline in web app
 - **Background pipeline**: Run search → dedup → screen in background with live progress, cancellation, and rate limit handling
 - **Multi-project management**: Save, switch, duplicate, export/import projects — each with isolated config + data
@@ -89,7 +91,7 @@ The web dashboard provides:
 - **Dashboard** — Real-time pipeline stepper, stat cards, interactive PRISMA 2020 flow diagram
 - **Screening** — Review papers with include/exclude/maybe decisions
 - **Eligibility** — Second-pass AI-assisted screening for stricter criteria
-- **All Papers** — Paginated, filterable, searchable table with export (CSV, BibTeX)
+- **All Papers** — Paginated, filterable, searchable table with field-picker export (CSV, BibTeX) — exports only filtered papers
 - **Downloads** — PDF viewer for downloaded papers (Elsevier, arXiv, Unpaywall)
 - **Settings** — Edit config, search queries, keywords, API keys from the browser
 - **Projects** — Create, switch, duplicate, import/export literature review projects
@@ -255,7 +257,8 @@ Also available in `docs/`:
 ## Roadmap
 
 - **v1.0**: CLI + MCP server with two-pass screening
-- **v1.3** (current): One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
+- **v1.4** (current): Elsevier-style export with field picker, per-project filter persistence, expanded tutorial
+- **v1.3**: One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
 - **v2.0** (planned): Desktop app (Tauri), drag-and-drop config builder, multi-user support
 
 ## How to Cite

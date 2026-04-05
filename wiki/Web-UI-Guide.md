@@ -143,10 +143,25 @@ Browse, search, and filter your entire paper collection.
 
 - **Search**: Full-text search across titles, abstracts, and keywords
 - **Decision filter**: All, Included (1st pass), Excluded, Maybe, Eligible: Included, Eligible: Excluded
-- **Source filter**: Filter by database (OpenAlex, arXiv, Semantic Scholar)
+- **Source filter**: Filter by database (OpenAlex, arXiv, Semantic Scholar, Scopus)
 - **Pagination**: Navigate through pages of 25 papers each
-- **Export buttons**: Download as CSV or BibTeX directly from this page
+- **Export CSV/BibTeX**: Opens an Elsevier-style field picker modal (see below)
 - **Clickable titles**: Click any paper title to view full details
+
+#### Export Modal (Elsevier-style)
+
+Clicking "Export CSV" or "Export BibTeX" opens a modal where you can customize your export:
+
+- **Exports only filtered papers**: Whatever Decision + Source filters are active, only those papers are exported
+- **Field picker (CSV only)**: Choose which columns to include, organized in groups:
+  - *Citation information*: Title, Author(s), Year, DOI, URL, Venue, Source, Source ID, BibTeX key
+  - *Abstract & Keywords*: Abstract, Author keywords (greyed out if source = Semantic Scholar, which doesn't provide keywords)
+  - *Screening information*: Decision, Reason, Method (1st pass + eligibility)
+- **Group checkboxes**: Click a group header to toggle all fields in that group
+- **Select All**: Link at bottom to check every available field
+- **BibTeX**: No field picker needed — BibTeX has a fixed schema (title, authors, year, DOI, URL, journal, abstract)
+
+The export generates the file on-demand — no need to run "Generate Report" first. Works on fresh installations.
 
 #### Paper Detail Page (`/papers/[id]`)
 
@@ -306,9 +321,24 @@ The sidebar provides navigation to all 8 pages. The currently active page is hig
 
 When you navigate to a paper detail page and click "Go Back", the app returns to your exact scroll position on the previous page. This works across all list pages (Screening, Eligibility, All Papers).
 
+### Filter Persistence
+
+All filter states are automatically saved per-project:
+
+- **All Papers**: Decision filter, Source filter, current page
+- **Screening**: Filter type (All/Maybe/Included/Excluded), batch size
+- **Eligibility**: Batch size
+- **Downloads**: Status filter (All/Downloaded/No OA/Failed)
+
+**How it works:**
+1. Filters are saved to `ui_state.json` in the active project directory (debounced, 300ms)
+2. When you navigate away and come back, your last filter selections are restored
+3. Switching projects loads that project's saved filter state
+4. URL parameters still work and take priority (for bookmarking or sharing links like `/papers?decision=eligible_included`)
+
 ### URL-Persisted State
 
-Page numbers, filters, and batch sizes are saved in the URL (e.g., `/papers?page=3&decision=include`). This means:
+Page numbers, filters, and batch sizes are also reflected in the URL (e.g., `/papers?page=3&decision=include`). This means:
 - Refreshing the page preserves your current view
 - The browser's back/forward buttons work correctly
 - Bookmarking a filtered view works

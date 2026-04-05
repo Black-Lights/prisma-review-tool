@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { downloadPapers, fetchDownloadLog, type DownloadEntry } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
@@ -16,16 +16,31 @@ import {
   Eye,
   AlertTriangle,
 } from "lucide-react";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 type ViewFilter = "all" | "downloaded" | "no_oa" | "failed";
 
+const DOWNLOADS_DEFAULTS = { filter: "all" } as const;
+
 export default function DownloadsPage() {
+  return (
+    <Suspense>
+      <DownloadsContent />
+    </Suspense>
+  );
+}
+
+function DownloadsContent() {
   const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [viewFilter, setViewFilter] = useState<ViewFilter>("all");
+
+  const { filters, setFilter: setPersistedFilter } = usePersistedFilters("downloads", DOWNLOADS_DEFAULTS);
+  const viewFilter = filters.filter as ViewFilter;
+  const setViewFilter = (v: ViewFilter) => setPersistedFilter("filter", v);
+
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
@@ -88,7 +103,7 @@ export default function DownloadsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3">
+      <div data-tutorial="downloads-header" className="flex items-center gap-3">
         <Download className="w-7 h-7 text-primary" />
         <h1 className="text-2xl font-bold text-text-primary">Downloads</h1>
       </div>
@@ -187,7 +202,7 @@ export default function DownloadsPage() {
           </div>
 
           {/* Table */}
-          <GlassCard className="!p-0 overflow-x-auto">
+          <GlassCard data-tutorial="downloads-table" className="!p-0 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border-glass text-left text-text-muted">

@@ -66,25 +66,50 @@ def export_bibtex(papers: list[Paper], path: Path) -> None:
         f.write("\n".join(lines))
 
 
-def export_csv(papers: list[Paper], path: Path) -> None:
-    """Export papers to a CSV file."""
+ALL_CSV_FIELDS = [
+    "bibtex_key", "title", "authors", "year", "venue", "doi", "url",
+    "abstract", "keywords", "source", "source_id",
+    "screen_decision", "screen_reason", "screen_method",
+    "eligibility_decision", "eligibility_reason", "eligibility_method",
+]
+
+DEFAULT_CSV_FIELDS = [
+    "bibtex_key", "title", "authors", "year", "venue", "doi", "url",
+    "source", "screen_decision",
+]
+
+
+def export_csv(
+    papers: list[Paper],
+    path: Path,
+    fields: list[str] | None = None,
+) -> None:
+    """Export papers to a CSV file.
+
+    Args:
+        papers: Papers to export.
+        path: Output file path.
+        fields: Column names to include. None = default set.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    keys = _make_unique_keys(papers)
+    use_fields = fields if fields else DEFAULT_CSV_FIELDS
+    # Always generate bibtex_key if requested
+    keys = _make_unique_keys(papers) if "bibtex_key" in use_fields else [None] * len(papers)
+
     rows = []
     for paper, key in zip(papers, keys):
-        rows.append({
-            "bibtex_key": key,
-            "title": paper.title,
-            "authors": "; ".join(paper.authors),
-            "year": paper.year,
-            "venue": paper.venue or "",
-            "doi": paper.doi or "",
-            "url": paper.url or "",
-            "source": paper.source,
-            "screen_decision": paper.screen_decision or "",
-            "screen_reason": paper.screen_reason or "",
-        })
+        row: dict = {}
+        for f in use_fields:
+            if f == "bibtex_key":
+                row[f] = key
+            elif f == "authors":
+                row[f] = "; ".join(paper.authors)
+            elif f == "keywords":
+                row[f] = "; ".join(paper.keywords)
+            elif hasattr(paper, f):
+                row[f] = getattr(paper, f) or ""
+        rows.append(row)
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(rows, columns=use_fields)
     df.to_csv(path, index=False, encoding="utf-8")

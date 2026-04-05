@@ -281,3 +281,35 @@ async def import_project(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid zip file")
 
     return {"status": "imported", "name": slug}
+
+
+# ---------------------------------------------------------------------------
+# UI state persistence (per-project)
+# ---------------------------------------------------------------------------
+
+@router.get("/active/ui-state")
+def get_ui_state():
+    """Return saved UI filter state for the active project."""
+    name = _active_project_name()
+    if not name:
+        return {}
+    state_path = get_projects_dir() / name / "ui_state.json"
+    if not state_path.exists():
+        return {}
+    try:
+        return json.load(open(state_path, "r", encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+@router.put("/active/ui-state")
+def save_ui_state(body: dict):
+    """Save UI filter state for the active project."""
+    name = _active_project_name()
+    if not name:
+        raise HTTPException(status_code=404, detail="No active project")
+    state_path = get_projects_dir() / name / "ui_state.json"
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(state_path, "w", encoding="utf-8") as f:
+        json.dump(body, f, indent=2)
+    return {"status": "ok"}

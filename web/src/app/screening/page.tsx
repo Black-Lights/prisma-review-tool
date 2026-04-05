@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
 import { Search } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
 import { fetchPapersToScreen, screenPaper, searchPapers } from "@/lib/api";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 type FilterType = "all" | "maybe" | "include" | "exclude";
 
@@ -25,25 +25,20 @@ export default function ScreeningPage() {
   );
 }
 
+const SCREENING_DEFAULTS = { filter: "maybe", batch: 20 } as const;
+
 function ScreeningContent() {
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
 
-  // State initialized from URL params (for back-navigation restore)
-  const [filter, setFilterRaw] = useState<FilterType>(() => (searchParams.get("filter") || "maybe") as FilterType);
-  const [batchSize, setBatchSizeRaw] = useState(() => parseInt(searchParams.get("batch") || "20", 10));
+  const { filters, setFilter: setPersistedFilter } = usePersistedFilters("screening", SCREENING_DEFAULTS);
+  const filter = filters.filter as FilterType;
+  const batchSize = filters.batch;
 
-  // Sync state to URL for back-navigation persistence
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (filter !== "maybe") params.set("filter", filter);
-    if (batchSize !== 20) params.set("batch", String(batchSize));
-    const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [filter, batchSize]);
-
-  const setFilter = (v: FilterType) => { setFilterRaw(v); setBatchSizeRaw(20); };
-  const setBatchSize = (fn: (prev: number) => number) => setBatchSizeRaw(fn);
+  const setFilter = (v: FilterType) => {
+    setPersistedFilter("filter", v);
+    setPersistedFilter("batch", 20);
+  };
+  const setBatchSize = (fn: (prev: number) => number) => setPersistedFilter("batch", fn(batchSize));
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<any[] | null>(null);

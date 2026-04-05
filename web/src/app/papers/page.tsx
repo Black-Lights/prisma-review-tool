@@ -1,14 +1,13 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
 import { fetchAllPapers, searchPapers } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import ExportModal from "@/components/ExportModal";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 const decisionColor: Record<string, string> = {
   include: "bg-accent-green/15 text-accent-green",
@@ -31,30 +30,24 @@ export default function PapersPage() {
   );
 }
 
+const PAPERS_DEFAULTS = { page: 1, decision: "all", source: "all" } as const;
+
 function PapersContent() {
-  const searchParams = useSearchParams();
   const perPage = 25;
 
-  // State initialized from URL params (for back-navigation restore)
-  const [page, setPageRaw] = useState(() => parseInt(searchParams.get("page") || "1", 10));
-  const [decisionFilter, setDecisionFilterRaw] = useState(() => searchParams.get("decision") || "all");
-  const [sourceFilter, setSourceFilterRaw] = useState(() => searchParams.get("source") || "all");
+  const { filters, setFilter } = usePersistedFilters("papers", PAPERS_DEFAULTS);
+  const { page, decision: decisionFilter, source: sourceFilter } = filters;
+
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [exportFormat, setExportFormat] = useState<"csv" | "bib" | null>(null);
 
-  // Sync state to URL for back-navigation persistence
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (page > 1) params.set("page", String(page));
-    if (decisionFilter !== "all") params.set("decision", decisionFilter);
-    if (sourceFilter !== "all") params.set("source", sourceFilter);
-    const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-  }, [page, decisionFilter, sourceFilter]);
-
-  const setPage = (p: number | ((prev: number) => number)) => setPageRaw(p);
-  const setDecisionFilter = (v: string) => { setDecisionFilterRaw(v); setPageRaw(1); };
-  const setSourceFilter = (v: string) => { setSourceFilterRaw(v); setPageRaw(1); };
+  const setPage = (p: number | ((prev: number) => number)) => {
+    const next = typeof p === "function" ? p(page) : p;
+    setFilter("page", next);
+  };
+  const setDecisionFilter = (v: string) => setFilter("decision", v, true);
+  const setSourceFilter = (v: string) => setFilter("source", v, true);
 
   // Paginated papers from API
   const { data, isLoading, isPlaceholderData } = useQuery({
@@ -132,13 +125,13 @@ function PapersContent() {
           <option value="arxiv">arXiv</option>
           <option value="semantic_scholar">Semantic Scholar</option>
         </select>
-        <div className="ml-auto flex gap-2">
-          <a href={`${API}/api/reports/export/csv`} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-accent-green/15 px-4 py-2 text-sm font-medium text-accent-green hover:bg-accent-green/25">
+        <div data-tutorial="export-buttons" className="ml-auto flex gap-2">
+          <button onClick={() => setExportFormat("csv")} className="rounded-lg bg-accent-green/15 px-4 py-2 text-sm font-medium text-accent-green hover:bg-accent-green/25">
             Export CSV
-          </a>
-          <a href={`${API}/api/reports/export/bib`} target="_blank" rel="noopener noreferrer" className="rounded-lg bg-accent-purple/15 px-4 py-2 text-sm font-medium text-accent-purple hover:bg-accent-purple/25">
+          </button>
+          <button onClick={() => setExportFormat("bib")} className="rounded-lg bg-accent-purple/15 px-4 py-2 text-sm font-medium text-accent-purple hover:bg-accent-purple/25">
             Export BibTeX
-          </a>
+          </button>
         </div>
       </div>
 
@@ -234,6 +227,18 @@ function PapersContent() {
         <div className="glass p-12 text-center">
           <p className="text-text-secondary">No papers match the current filters.</p>
         </div>
+      )}
+
+      {/* Export Modal */}
+      {exportFormat && (
+        <ExportModal
+          open={!!exportFormat}
+          onClose={() => setExportFormat(null)}
+          format={exportFormat}
+          totalPapers={total}
+          decisionFilter={decisionFilter}
+          sourceFilter={sourceFilter}
+        />
       )}
     </div>
   );

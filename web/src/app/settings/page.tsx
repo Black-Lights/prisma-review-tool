@@ -466,14 +466,26 @@ export default function SettingsPage() {
       </GlassCard>
 
       {/* API Keys */}
-      <GlassCard>
+      <GlassCard data-tutorial="api-keys">
         <div className="flex items-center gap-2 mb-4">
           <Key className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-semibold text-text-primary">API Keys</h2>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-text-secondary mb-1">OpenAlex Email (optional, for faster API access)</label>
+            <div className="flex items-center gap-2 mb-1">
+              <label className="block text-sm text-text-secondary">OpenAlex Email (optional, for faster API access)</label>
+              <div className="relative group">
+                <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">
+                  i
+                </button>
+                <div className="absolute left-0 bottom-7 w-80 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1.5 shadow-xl">
+                  <p className="text-text-primary font-medium">OpenAlex Polite Pool</p>
+                  <p className="text-text-muted">No API key needed. Just provide your email to get faster, priority access (the &quot;polite pool&quot;).</p>
+                  <p className="text-text-muted">Use your institutional email for best results.</p>
+                </div>
+              </div>
+            </div>
             <input
               type="text"
               value={form?.api_keys?.openalex_email ?? ""}
@@ -483,7 +495,24 @@ export default function SettingsPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-text-secondary mb-1">Scopus API Key (optional, needs institutional access)</label>
+            <div className="flex items-center gap-2 mb-1">
+              <label className="block text-sm text-text-secondary">Scopus API Key (optional, free to get)</label>
+              <div className="relative group">
+                <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">
+                  i
+                </button>
+                <div className="absolute right-0 bottom-7 w-80 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1.5 shadow-xl">
+                  <p className="text-text-primary font-medium">Elsevier Scopus API Key</p>
+                  <p className="text-text-muted">1. Go to <span className="text-primary">dev.elsevier.com</span> and create an account (free)</p>
+                  <p className="text-text-muted">2. Click &quot;Create API Key&quot;</p>
+                  <p className="text-text-muted">3. Label: <span className="text-primary">PRISMA Review Tool</span></p>
+                  <p className="text-text-muted">4. Website: <span className="text-primary">http://localhost</span></p>
+                  <p className="text-text-muted">5. Copy the generated key and paste it here</p>
+                  <p className="text-accent-amber">The API key is free for anyone. For full results (abstracts, complete records), use from a campus network or university VPN. Basic metadata (titles, authors, DOIs) works from anywhere.</p>
+                  <p className="text-text-muted">This key also enables Elsevier PDF downloads for papers your institution subscribes to.</p>
+                </div>
+              </div>
+            </div>
             <input
               type="password"
               value={form?.api_keys?.scopus ?? ""}

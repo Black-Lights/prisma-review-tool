@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-04-05
+
+### Changed — Export System
+
+**CLI (unchanged):**
+- `python -m prisma_review export` still generates `included_papers.csv`, `eligible_papers.csv`,
+  `included_papers.bib`, `eligible_papers.bib` in `prisma_output/04_export/`
+- CLI export always exports ALL included/eligible papers with a fixed set of columns
+- `POST /api/reports/generate` still works for backward compatibility
+
+**Web App (new behavior):**
+- Export CSV/BibTeX buttons on All Papers page now export **only the currently filtered papers**
+  (respects Decision and Source filters from the dropdowns)
+- New Elsevier-style field picker modal lets you choose which columns to include in CSV export
+  (Citation info, Abstract & Keywords, Screening info — with unavailable fields greyed out)
+- Export generates files on-demand via `GET /api/papers/export/{format}` — no longer requires
+  running `POST /api/reports/generate` first
+- BibTeX export also respects filters (fixed schema, no field picker needed)
+
+### Changed — Filter Persistence
+
+**Old behavior:**
+- Filters on All Papers, Screening, Eligibility pages were stored in URL params only
+- Downloads page filter was lost on page reload
+- Switching between pages or refreshing lost filter selections (except URL-persisted ones)
+
+**New behavior:**
+- All filter states are saved per-project in `ui_state.json` inside the project directory
+- Navigating away and returning restores your last filter selections
+- Switching projects loads that project's saved filter state
+- URL params still work and take priority over saved state (for bookmarking/sharing)
+
+### Added
+- Export modal with field picker (Elsevier-style) — select which columns to include in CSV export
+- `GET /api/papers/export/{format}` endpoint — on-demand filtered export with `decision`, `source`, `fields` params
+- `GET/PUT /api/projects/active/ui-state` endpoints — per-project UI state persistence
+- `usePersistedFilters` React hook for filter state management across all pages
+- Tutorial steps for Downloads page (was missing), Projects page, Eligibility page, and Export feature
+- Filter persistence for Downloads page (previously had no persistence at all)
+
+### Fixed
+- Export on fresh machine now works without needing to run `POST /api/reports/generate` first
+- Export respects current Decision + Source filters instead of always exporting all eligible papers
+- Refactored paper filtering logic into shared `_load_filtered_papers()` helper
+
 ## [1.3.0] - 2026-03-31
 
 ### Added
