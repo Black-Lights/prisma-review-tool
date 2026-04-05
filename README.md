@@ -1,6 +1,6 @@
 # PRISMA Review Tool
 
-[![Version: 1.4.4](https://img.shields.io/badge/version-1.4.4-blue.svg)](CHANGELOG.md)
+[![Version: 1.5.0](https://img.shields.io/badge/version-1.5.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-green.svg)](https://www.python.org)
 
@@ -257,7 +257,8 @@ Also available in `docs/`:
 ## Roadmap
 
 - **v1.0**: CLI + MCP server with two-pass screening
-- **v1.4** (current): Elsevier-style export with field picker, per-project filter persistence, expanded tutorial
+- **v1.5** (current): Re-screen from Screening page, PRISMA 2020 compliant diagram, workflow-ordered tutorial (24 steps)
+- **v1.4**: Elsevier-style export with field picker, per-project filter persistence
 - **v1.3**: One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
 - **v2.0** (planned): Desktop app (Tauri), drag-and-drop config builder, multi-user support
 

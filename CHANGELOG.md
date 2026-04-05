@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-04-05
+
+### Added
+- **Re-screen from Screening page**: Click "Re-screen" to re-run keyword screening with a different minimum keyword hits threshold — without re-searching databases or re-deduplicating. Adjust the number and click "Apply" to instantly re-classify papers. The new threshold is saved to config so Settings stays in sync.
+- **Re-screen feedback**: After applying, a green panel shows the result counts (included/maybe/excluded) and how many papers moved to the Eligibility page.
+
+### Changed
+- **Tutorial follows PRISMA workflow order**: The guided tour now follows the logical order: Settings → Projects → Dashboard → Screening → Eligibility → All Papers → Downloads → MCP. Previously it jumped between pages. Steps are numbered (Step 1-7) for clarity.
+- **Tutorial expanded to 24 steps** (was 17): Added steps for Re-screen, Export modal, Downloads page, Projects page, Eligibility page, API Keys, and filter persistence.
+
+### Fixed
+- **PRISMA diagram: "Studies included" now only shows eligibility-passed papers** per PRISMA 2020 (Page et al., BMJ 2021). Shows "Pending eligibility screening" until papers are explicitly included via the Eligibility page.
+- **Pipeline re-run clears stale data** so cancelled runs don't leave old results.
+- **Scopus works without campus VPN** — automatic fallback from COMPLETE to STANDARD view.
+- **Settings page refreshes immediately after project switch**.
+- **New projects inherit API keys** from the active project.
+- **Re-screen invalidates all caches** so Eligibility page updates without manual reload.
+
 ## [1.4.4] - 2026-04-05
 
 ### Fixed

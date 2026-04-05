@@ -17,7 +17,16 @@ See [Installation & Setup](Installation-and-Setup) for all launcher options (`--
 
 ### First-Time Tutorial
 
-When you open the app for the first time, an interactive guided tour walks you through all 7 pages with 17 steps. The tutorial highlights each UI element with a glassmorphism chat bubble explaining what it does.
+When you open the app for the first time, a 24-step interactive guided tour walks you through the PRISMA workflow in order:
+
+1. **Settings** — Configure queries, keywords, API keys
+2. **Projects** — Manage multiple reviews
+3. **Dashboard** — Run the pipeline, view stats and PRISMA diagram
+4. **Screening** — First-pass review + re-screen with adjustable threshold
+5. **Eligibility** — Second-pass with documented reasons
+6. **All Papers** — Browse, filter, export (CSV/BibTeX with field picker)
+7. **Downloads** — Download and view PDFs
+8. **MCP Settings** — Connect AI agents
 
 - **Skip**: Click "Skip Tutorial" at any time
 - **Restart**: Click the **"Take Tour"** button at the bottom of the sidebar
