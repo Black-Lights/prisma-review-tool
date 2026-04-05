@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-04-05
+
+### Fixed
+- **Pipeline re-run clears stale data** — clicking "Run All" after a cancelled or completed run now deletes all previous output (search, dedup, screen, eligibility, export) before starting fresh. Previously, stale files from cancelled runs persisted and the pipeline reused them.
+- **Scopus works without campus VPN** — Scopus search now automatically falls back from `COMPLETE` view (requires institutional IP) to `STANDARD` view (works anywhere). Abstracts are still available from OpenAlex. Previously, Scopus returned 0 results with a silent 401 error when not on campus network.
+
 ## [1.4.2] - 2026-04-05
 
 ### Fixed
