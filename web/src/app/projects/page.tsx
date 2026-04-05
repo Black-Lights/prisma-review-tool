@@ -46,10 +46,8 @@ export default function ProjectsPage() {
   const projects = data?.projects ?? [];
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ["projects"] });
-    queryClient.invalidateQueries({ queryKey: ["active-project"] });
-    queryClient.invalidateQueries({ queryKey: ["stats"] });
-    queryClient.invalidateQueries({ queryKey: ["pipeline-progress"] });
+    // Invalidate everything so all pages reflect the new project
+    queryClient.invalidateQueries();
   };
 
   const createMutation = useMutation({

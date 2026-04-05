@@ -120,6 +120,19 @@ def create_project(body: CreateProjectRequest):
     template = root / "config.template.yaml"
     dest_config = project_dir / "config.yaml"
 
+    # Try to carry over API keys from the currently active project
+    active_api_keys = {}
+    active_name = _active_project_name()
+    if active_name:
+        active_config = projects_dir / active_name / "config.yaml"
+        if active_config.exists():
+            try:
+                with open(active_config, "r", encoding="utf-8") as f:
+                    active_cfg = yaml.safe_load(f) or {}
+                active_api_keys = active_cfg.get("api_keys", {})
+            except Exception:
+                pass
+
     if template.exists():
         shutil.copy2(template, dest_config)
         # Set the project name and output_dir in the new config
@@ -129,13 +142,16 @@ def create_project(body: CreateProjectRequest):
             cfg["project"] = {}
         cfg["project"]["name"] = body.name
         cfg["project"]["output_dir"] = "./prisma_output"
+        # Preserve API keys from active project
+        if active_api_keys:
+            cfg["api_keys"] = active_api_keys
         with open(dest_config, "w", encoding="utf-8") as f:
             yaml.safe_dump(cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
     else:
         # Minimal fallback config
         cfg = {
             "project": {"name": body.name, "output_dir": "./prisma_output"},
-            "api_keys": {"scopus": "", "openalex_email": ""},
+            "api_keys": active_api_keys or {"scopus": "", "openalex_email": ""},
             "search": {"date_range": {"start": "2015-01-01", "end": "2026-12-31"}, "max_results_per_query": 500, "sources": ["openalex"], "queries": []},
             "dedup": {"doi_match": True, "fuzzy_title_threshold": 90},
             "screening": {"rules": {"include_keywords": [], "exclude_keywords": [], "min_include_hits": 2}},
