@@ -199,7 +199,14 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
 
     # Wait for frontend to be ready, then open browser
     if open_browser:
-        time.sleep(4)
+        log("Waiting for web app to be ready...", "info")
+        import urllib.request
+        for _ in range(60):  # up to 60 seconds
+            try:
+                urllib.request.urlopen(url, timeout=1)
+                break
+            except Exception:
+                time.sleep(1)
         log(f"Opening {url} in your browser...", "ok")
         webbrowser.open(url)
 
