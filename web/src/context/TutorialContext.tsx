@@ -121,6 +121,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     description: "Set include and exclude keywords. Papers matching enough include keywords (and no exclude keywords) pass the first screening.",
     page: "/settings",
   },
+  // API Keys (settings)
+  {
+    id: "api-keys",
+    target: '[data-tutorial="api-keys"]',
+    title: "API Keys",
+    description: "Optional but recommended. Add your Scopus API key for broader search coverage and Elsevier PDF downloads. Hover the (i) buttons for step-by-step instructions on getting your key from dev.elsevier.com — use 'PRISMA Review Tool' as the key name and 'http://localhost' as the website.",
+    page: "/settings",
+  },
   // Projects
   {
     id: "projects-intro",
