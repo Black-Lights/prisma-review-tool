@@ -85,10 +85,14 @@ Reports of included studies: n = {elig_included}
 """
     else:
         md += f"""
+## Eligibility
+
+Reports sought for retrieval: n = {included}
+Reports assessed for eligibility: Pending eligibility screening
+
 ## Included
 
-Studies included in review: n = {included}
-Reports of included studies: n = {included}
+Studies included in review: Pending eligibility screening
 """
 
     md += f"""
@@ -133,11 +137,9 @@ def generate_png_diagram(state: dict, path: Path) -> None:
     sources = {k: v for k, v in search.items() if k != "total"}
     source_text = "\n".join(f"{k}: {v}" for k, v in sources.items())
 
-    fig_h = 13 if has_eligibility else 10
-    fig, ax = plt.subplots(1, 1, figsize=(12, fig_h))
+    fig, ax = plt.subplots(1, 1, figsize=(12, 13))
     ax.set_xlim(0, 10)
-    y_max = 13 if has_eligibility else 10
-    ax.set_ylim(0, y_max)
+    ax.set_ylim(0, 13)
     ax.axis("off")
     ax.set_title("PRISMA 2020 Flow Diagram", fontsize=16, fontweight="bold", pad=20)
 
@@ -157,76 +159,55 @@ def generate_png_diagram(state: dict, path: Path) -> None:
 
     removal_text = f"Records removed before\nscreening:\nDuplicates (n = {dups})\nAutomation tool\nexclusions (n = {excluded})"
 
+    # Always show 4 stages per PRISMA 2020 (Page et al., BMJ 2021)
+    # IDENTIFICATION
+    ax.text(0.3, 12.5, "IDENTIFICATION", fontsize=10, fontweight="bold", color="#1565C0")
+    draw_box(0.5, 11.0, 3.5, 1.2,
+             f"Records identified from\ndatabases & registers\n(n = {total})\n{source_text}",
+             color="#E3F2FD", border="#1565C0")
+    draw_box(5.5, 11.0, 3.5, 1.2,
+             removal_text,
+             color="#FFEBEE", border="#C62828")
+    draw_arrow(4.0, 11.6, 5.5, 11.6)
+
+    # SCREENING
+    ax.text(0.3, 10.3, "SCREENING", fontsize=10, fontweight="bold", color="#F57F17")
+    draw_box(0.5, 8.5, 3.5, 1.2,
+             f"Records screened\n(title + abstract)\n(n = {after_dedup})",
+             color="#FFF8E1", border="#F57F17")
+    draw_arrow(2.25, 11.0, 2.25, 9.7)
+    excluded_total = after_dedup - included
+    draw_box(5.5, 8.5, 3.5, 1.2,
+             f"Records excluded**\n(n = {excluded_total})",
+             color="#FFEBEE", border="#C62828")
+    draw_arrow(4.0, 9.1, 5.5, 9.1)
+
+    # ELIGIBILITY
+    ax.text(0.3, 7.8, "ELIGIBILITY", fontsize=10, fontweight="bold", color="#6A1B9A")
+    draw_box(0.5, 5.8, 3.5, 1.2,
+             f"Reports sought for retrieval\n(n = {included})\nReports assessed for\neligibility\n(n = {elig_input if has_eligibility else included})",
+             color="#F3E5F5", border="#6A1B9A")
+    draw_arrow(2.25, 8.5, 2.25, 7.0)
+
     if has_eligibility:
-        # --- Layout with eligibility (4 stages) ---
-        # IDENTIFICATION
-        ax.text(0.3, 12.5, "IDENTIFICATION", fontsize=10, fontweight="bold", color="#1565C0")
-        draw_box(0.5, 11.0, 3.5, 1.2,
-                 f"Records identified from\ndatabases & registers\n(n = {total})\n{source_text}",
-                 color="#E3F2FD", border="#1565C0")
-        draw_box(5.5, 11.0, 3.5, 1.2,
-                 removal_text,
-                 color="#FFEBEE", border="#C62828")
-        draw_arrow(4.0, 11.6, 5.5, 11.6)
-
-        # SCREENING
-        ax.text(0.3, 10.3, "SCREENING", fontsize=10, fontweight="bold", color="#F57F17")
-        draw_box(0.5, 8.5, 3.5, 1.2,
-                 f"Records screened\n(title + abstract)\n(n = {after_dedup})\nIncluded: n = {included}",
-                 color="#FFF8E1", border="#F57F17")
-        draw_arrow(2.25, 11.0, 2.25, 9.7)
-        draw_box(5.5, 8.5, 3.5, 1.2,
-                 f"Records excluded\n(keyword rules +\nAI-assisted review)\n(n = {excluded})",
-                 color="#FFEBEE", border="#C62828")
-        draw_arrow(4.0, 9.1, 5.5, 9.1)
-
-        # ELIGIBILITY
-        ax.text(0.3, 7.8, "ELIGIBILITY", fontsize=10, fontweight="bold", color="#6A1B9A")
-        draw_box(0.5, 5.8, 3.5, 1.2,
-                 f"Reports assessed for\neligibility (AI-assisted)\n(n = {elig_input})",
-                 color="#F3E5F5", border="#6A1B9A")
-        draw_arrow(2.25, 8.5, 2.25, 7.0)
-        draw_box(5.5, 5.8, 3.5, 1.2,
-                 f"Reports excluded\n(stricter criteria)\n(n = {elig_excluded})",
-                 color="#FFEBEE", border="#C62828")
-        draw_arrow(4.0, 6.4, 5.5, 6.4)
-
-        # INCLUDED
-        ax.text(0.3, 5.1, "INCLUDED", fontsize=10, fontweight="bold", color="#2E7D32")
-        draw_box(0.5, 3.5, 3.5, 1.2,
-                 f"Studies included\nin review\n(n = {elig_included})",
-                 color="#E8F5E9", border="#2E7D32")
-        draw_arrow(2.25, 5.8, 2.25, 4.7)
-
+        elig_excl_text = f"Reports excluded:\n(n = {elig_excluded})"
     else:
-        # --- Layout without eligibility (3 stages) ---
-        # IDENTIFICATION
-        ax.text(0.3, 9.5, "IDENTIFICATION", fontsize=10, fontweight="bold", color="#1565C0")
-        draw_box(0.5, 8.2, 3.5, 1.2,
-                 f"Records identified from\ndatabases & registers\n(n = {total})\n{source_text}",
-                 color="#E3F2FD", border="#1565C0")
-        draw_box(5.5, 8.2, 3.5, 1.2,
-                 f"Records removed before\nscreening:\nDuplicates (n = {dups})",
-                 color="#FFEBEE", border="#C62828")
-        draw_arrow(4.0, 8.8, 5.5, 8.8)
+        elig_excl_text = "Reports excluded:\nPending eligibility screening"
+    draw_box(5.5, 5.8, 3.5, 1.2,
+             elig_excl_text,
+             color="#FFEBEE", border="#C62828")
+    draw_arrow(4.0, 6.4, 5.5, 6.4)
 
-        # SCREENING
-        ax.text(0.3, 7.5, "SCREENING", fontsize=10, fontweight="bold", color="#F57F17")
-        draw_box(0.5, 5.8, 3.5, 1.2,
-                 f"Records screened\n(title + abstract)\n(n = {after_dedup})",
-                 color="#FFF8E1", border="#F57F17")
-        draw_arrow(2.25, 8.2, 2.25, 7.0)
-        draw_box(5.5, 5.8, 3.5, 1.2,
-                 f"Records excluded\n(keyword rules +\nAI-assisted review)\n(n = {excluded})",
-                 color="#FFEBEE", border="#C62828")
-        draw_arrow(4.0, 6.4, 5.5, 6.4)
-
-        # INCLUDED
-        ax.text(0.3, 5.1, "INCLUDED", fontsize=10, fontweight="bold", color="#2E7D32")
-        draw_box(0.5, 3.5, 3.5, 1.2,
-                 f"Studies included\nin review\n(n = {included})",
-                 color="#E8F5E9", border="#2E7D32")
-        draw_arrow(2.25, 5.8, 2.25, 4.7)
+    # INCLUDED
+    ax.text(0.3, 5.1, "INCLUDED", fontsize=10, fontweight="bold", color="#2E7D32")
+    if has_eligibility:
+        incl_text = f"Studies included\nin review\n(n = {elig_included})\nReports of included\nstudies\n(n = {elig_included})"
+    else:
+        incl_text = f"Studies included\nin review\n(n = {included})\nReports of included\nstudies\n(n = {included})"
+    draw_box(0.5, 3.5, 3.5, 1.5,
+             incl_text,
+             color="#E8F5E9", border="#2E7D32")
+    draw_arrow(2.25, 5.8, 2.25, 5.0)
 
     plt.tight_layout()
     plt.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")
