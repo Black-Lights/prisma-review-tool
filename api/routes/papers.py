@@ -145,6 +145,69 @@ def export_papers(
     return FileResponse(tmp, media_type=media, filename=filename)
 
 
+# ── Re-screen (keyword screening with different threshold) ───────────────────
+
+@router.post("/papers/rescreen")
+def rescreen_papers(
+    min_include_hits: int = Query(2, ge=1, le=10),
+    config: Config = Depends(get_config),
+    lock=Depends(get_file_lock),
+):
+    """Re-run keyword screening on existing deduplicated papers with a new threshold.
+
+    Does NOT re-search or re-deduplicate — only re-applies screening rules.
+    """
+    from prisma_review.screen import screen_by_rules, get_by_decision
+
+    papers = load_papers(config.dedup_dir / "deduplicated.json")
+    if not papers:
+        return {"error": "No deduplicated papers found. Run the pipeline first."}
+
+    # Reset all rule-based decisions (keep manual decisions)
+    for p in papers:
+        if p.screen_method != "manual":
+            p.screen_decision = None
+            p.screen_reason = None
+            p.screen_method = None
+
+    papers = screen_by_rules(
+        papers, config.include_keywords, config.exclude_keywords, min_include_hits
+    )
+    included = get_by_decision(papers, "include")
+    excluded = get_by_decision(papers, "exclude")
+    maybe = get_by_decision(papers, "maybe")
+
+    with lock:
+        save_papers(papers, config.screen_dir / "screen_results.json")
+        save_papers(included, config.screen_dir / "included.json")
+        save_papers(excluded, config.screen_dir / "excluded.json")
+        save_papers(maybe, config.screen_dir / "maybe.json")
+
+        # Clear stale eligibility data — included papers have changed
+        for elig_file in ["eligibility_results.json", "eligible_included.json", "eligible_excluded.json"]:
+            elig_path = config.eligibility_dir / elig_file
+            if elig_path.exists():
+                save_papers([], elig_path)
+
+        state = load_state(config.state_file)
+        state["screen"] = {
+            "total_screened": len(papers),
+            "included": len(included),
+            "excluded": len(excluded),
+            "maybe": len(maybe),
+        }
+        state.pop("eligibility", None)
+        save_state(state, config.state_file)
+
+    return {
+        "status": "ok",
+        "min_include_hits": min_include_hits,
+        "included": len(included),
+        "excluded": len(excluded),
+        "maybe": len(maybe),
+    }
+
+
 # ── First-pass screening ─────────────────────────────────────────────────────
 
 @router.get("/papers/screen")

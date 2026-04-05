@@ -93,6 +93,7 @@ After the pipeline runs keyword screening, papers are classified as:
 
 #### Features
 
+- **Re-screen button**: Click "Re-screen" in the top-right to re-run keyword screening with a different minimum keyword hits threshold — without re-searching databases or re-deduplicating. Adjust the number and click "Apply" to instantly re-classify papers. Shows current counts (included/maybe/excluded) so you can see the effect before applying.
 - **Search bar**: Search papers by title, author, or keyword
 - **Filter pills**: Switch between All, Maybe, Included, Excluded views
 - **Paper cards**: Each card shows title (clickable link to detail page), authors, year, source badge, and truncated abstract
@@ -103,6 +104,7 @@ After the pipeline runs keyword screening, papers are classified as:
 #### Tips
 
 - Start with the "Maybe" filter — these are the papers that need your attention
+- Use **Re-screen** to tune the threshold: start with 2, check results, increase to 3-4 if too many papers pass
 - Read the abstract before deciding. Use "Show More" to see the full text
 - Add a brief reason for each decision — this is documented for PRISMA compliance
 - Decisions are saved immediately and update the pipeline stats

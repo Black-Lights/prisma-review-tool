@@ -1,11 +1,11 @@
 "use client";
 
 import { Suspense, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Search, RefreshCw, SlidersHorizontal } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
-import { fetchPapersToScreen, screenPaper, searchPapers } from "@/lib/api";
+import { fetchPapersToScreen, screenPaper, searchPapers, rescreenPapers, fetchStats } from "@/lib/api";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 type FilterType = "all" | "maybe" | "include" | "exclude";
@@ -77,17 +77,97 @@ function ScreeningContent() {
 
   const remaining = data?.total_matching ?? 0;
 
+  // Re-screen
+  const [rescreenHits, setRescreenHits] = useState(2);
+  const [showRescreen, setShowRescreen] = useState(false);
+
+  // Load current min_include_hits from stats/config
+  const { data: statsData } = useQuery({
+    queryKey: ["stats"],
+    queryFn: fetchStats,
+    staleTime: 30_000,
+  });
+  const screenStats = (statsData as any)?.screen ?? {};
+
+  const rescreenMutation = useMutation({
+    mutationFn: (hits: number) => rescreenPapers(hits),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["papers-to-screen"] });
+      queryClient.invalidateQueries({ queryKey: ["stats"] });
+      queryClient.invalidateQueries({ queryKey: ["all-papers"] });
+      setShowRescreen(false);
+    },
+  });
+
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div data-tutorial="screening-header" className="flex items-center gap-3">
-        <h1 className="text-3xl font-bold text-text-primary tracking-tight">
-          Screening
-        </h1>
-        <span className="rounded-full bg-primary-dim text-primary px-3 py-1 text-sm font-medium">
-          {remaining} remaining
-        </span>
+      <div data-tutorial="screening-header" className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold text-text-primary tracking-tight">
+            Screening
+          </h1>
+          <span className="rounded-full bg-primary-dim text-primary px-3 py-1 text-sm font-medium">
+            {remaining} remaining
+          </span>
+        </div>
+        <button
+          onClick={() => setShowRescreen(!showRescreen)}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
+        >
+          <SlidersHorizontal size={16} />
+          Re-screen
+        </button>
       </div>
+
+      {/* Re-screen panel */}
+      {showRescreen && (
+        <GlassCard data-tutorial="rescreen-panel" className="!p-4">
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal size={16} className="text-primary" />
+              <span className="text-sm font-medium text-text-primary">Re-run keyword screening</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-sm text-text-secondary">Min keyword hits:</label>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={rescreenHits}
+                onChange={(e) => setRescreenHits(parseInt(e.target.value) || 1)}
+                className="glass-input w-20 text-center text-sm"
+              />
+              <div className="relative group">
+                <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">i</button>
+                <div className="absolute left-0 bottom-7 w-64 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1 shadow-xl">
+                  <p className="text-text-primary font-medium">How many include keywords must match</p>
+                  <p className="text-text-muted">Low (1-2) = more papers pass, permissive</p>
+                  <p className="text-text-muted">High (3-5) = fewer papers, stricter</p>
+                </div>
+              </div>
+            </div>
+            {screenStats.included !== undefined && (
+              <span className="text-xs text-text-muted">
+                Currently: {screenStats.included} included / {screenStats.maybe} maybe / {screenStats.excluded} excluded
+              </span>
+            )}
+            <button
+              onClick={() => rescreenMutation.mutate(rescreenHits)}
+              disabled={rescreenMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 disabled:opacity-50 transition-colors cursor-pointer ml-auto"
+            >
+              <RefreshCw size={14} className={rescreenMutation.isPending ? "animate-spin" : ""} />
+              {rescreenMutation.isPending ? "Re-screening..." : "Apply"}
+            </button>
+          </div>
+          {rescreenMutation.data && (
+            <p className="text-xs text-accent-green mt-2">
+              Done: {rescreenMutation.data.included} included, {rescreenMutation.data.excluded} excluded, {rescreenMutation.data.maybe} maybe
+            </p>
+          )}
+        </GlassCard>
+      )}
 
       {/* Search bar */}
       <form onSubmit={handleSearch} className="flex gap-3">

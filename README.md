@@ -11,7 +11,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 - **Multi-database search**: arXiv, OpenAlex, Semantic Scholar (free, no API keys needed). Optional: Scopus.
 - **Automatic deduplication**: DOI matching + fuzzy title matching
 - **Two-pass screening**:
-  - **Pass 1**: Rule-based keyword screening (automated)
+  - **Pass 1**: Rule-based keyword screening (automated, re-screenable with adjustable threshold)
   - **Pass 2**: AI-assisted eligibility screening via MCP (stricter criteria)
 - **AI screening via MCP**: Works with Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, Amazon Q, Gemini CLI, and any MCP-compatible agent
 - **PRISMA 2020 flow diagram**: Interactive diagram matching the official template (Page et al., 2021) with download-as-PNG
@@ -89,7 +89,7 @@ Set up the MCP server to let AI agents (Claude Code, OpenAI Codex, GitHub Copilo
 
 The web dashboard provides:
 - **Dashboard** — Real-time pipeline stepper, stat cards, interactive PRISMA 2020 flow diagram
-- **Screening** — Review papers with include/exclude/maybe decisions
+- **Screening** — Review papers with include/exclude/maybe decisions, re-screen with adjustable keyword threshold
 - **Eligibility** — Second-pass AI-assisted screening for stricter criteria
 - **All Papers** — Paginated, filterable, searchable table with field-picker export (CSV, BibTeX) — exports only filtered papers
 - **Downloads** — PDF viewer for downloaded papers (Elsevier, arXiv, Unpaywall)

@@ -64,6 +64,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     page: "/screening",
   },
   {
+    id: "rescreen",
+    target: '[data-tutorial="screening-header"]',
+    title: "Re-screen Papers",
+    description: "Click 'Re-screen' to re-run keyword screening with a different threshold — without re-searching databases. Increase the min keyword hits to be stricter, or decrease to include more papers. Results update instantly.",
+    page: "/screening",
+  },
+  {
     id: "filter-pills",
     target: '[data-tutorial="filter-pills"]',
     title: "Filter Papers",
