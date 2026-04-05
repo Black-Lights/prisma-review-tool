@@ -1,14 +1,14 @@
 "use client";
 
-import { Suspense, useState, useEffect } from "react";
+import { Suspense, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "next/navigation";
 import {
   fetchEligibilityPapers,
   eligibilityScreen,
   type EligibilityListResponse,
 } from "@/lib/api";
 import PaperCard from "@/components/PaperCard";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 export default function EligibilityPage() {
   return (
@@ -18,19 +18,13 @@ export default function EligibilityPage() {
   );
 }
 
+const ELIGIBILITY_DEFAULTS = { batch: 20 } as const;
+
 function EligibilityContent() {
   const queryClient = useQueryClient();
-  const searchParams = useSearchParams();
 
-  const [batchSize, setBatchSizeRaw] = useState(() => parseInt(searchParams.get("batch") || "20", 10));
-
-  useEffect(() => {
-    const params = new URLSearchParams();
-    if (batchSize !== 20) params.set("batch", String(batchSize));
-    const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [batchSize]);
+  const { filters, setFilter } = usePersistedFilters("eligibility", ELIGIBILITY_DEFAULTS);
+  const batchSize = filters.batch;
 
   const { data, isLoading } = useQuery<EligibilityListResponse>({
     queryKey: ["eligibility-papers", batchSize],
@@ -60,13 +54,13 @@ function EligibilityContent() {
   const progress = total > 0 ? Math.min((screened / total) * 100, 100) : 0;
 
   const handleLoadMore = () => {
-    setBatchSizeRaw((prev) => prev + 20);
+    setFilter("batch", batchSize + 20);
   };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
+      <div data-tutorial="eligibility-header" className="flex items-center gap-4">
         <h1 className="text-2xl font-bold text-text-primary">
           Eligibility Screening
         </h1>

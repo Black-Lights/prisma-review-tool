@@ -105,7 +105,7 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div data-tutorial="projects-header" className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-text-primary tracking-tight">
             Projects

@@ -106,6 +106,8 @@ python -m prisma_review export
 
 The eligible files are only created if second-pass eligibility screening has been done.
 
+> **Note:** CLI export always exports ALL included/eligible papers with a fixed set of columns. For filtered export with field selection (choose which columns to include, export only specific decision/source subsets), use the web app's Export Modal on the All Papers page.
+
 ---
 
 ### `status`

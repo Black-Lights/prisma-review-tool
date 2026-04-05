@@ -112,6 +112,14 @@ export const importProject = async (file: File) => {
   return res.json() as Promise<{ status: string; name: string }>;
 };
 
+// UI state (per-project filter persistence)
+export const fetchUiState = () => request<Record<string, any>>("/api/projects/active/ui-state");
+export const saveUiState = (state: Record<string, any>) =>
+  request<{ status: string }>("/api/projects/active/ui-state", {
+    method: "PUT",
+    body: JSON.stringify(state),
+  });
+
 // Config
 export const fetchConfig = () => request<any>("/api/config");
 export const updateConfig = (data: any) =>

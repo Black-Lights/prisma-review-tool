@@ -1,18 +1,52 @@
-"""Paper endpoints — screening, eligibility, search, details."""
+"""Paper endpoints — screening, eligibility, search, details, export."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import tempfile
+from pathlib import Path
 
-from prisma_review.models import load_papers, save_papers
+from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
+
+from prisma_review.models import Paper, load_papers, save_papers
 from prisma_review.screen import get_by_decision
 from prisma_review.config import Config
 from prisma_review.diagram import load_state, save_state
+from prisma_review.export import export_csv, export_bibtex, ALL_CSV_FIELDS
 
 from api.deps import get_config, get_file_lock
 from api.schemas import ScreenDecision, BatchScreenItem
 
 router = APIRouter(tags=["papers"])
+
+
+# ── Shared helpers ──────────────────────────────────────────────────────────
+
+def _load_filtered_papers(
+    config: Config,
+    decision: str = "all",
+    source: str = "all",
+) -> list[Paper]:
+    """Load papers from the pipeline state, filtered by decision and source."""
+    papers = load_papers(config.screen_dir / "screen_results.json")
+    if not papers:
+        papers = load_papers(config.dedup_dir / "deduplicated.json")
+
+    if decision == "eligible_included":
+        elig_papers = load_papers(config.eligibility_dir / "eligible_included.json")
+        elig_ids = {p.id for p in elig_papers}
+        papers = [p for p in papers if p.id in elig_ids]
+    elif decision == "eligible_excluded":
+        elig_papers = load_papers(config.eligibility_dir / "eligible_excluded.json")
+        elig_ids = {p.id for p in elig_papers}
+        papers = [p for p in papers if p.id in elig_ids]
+    elif decision != "all":
+        papers = [p for p in papers if (p.screen_decision or "").lower() == decision.lower()]
+
+    if source != "all":
+        papers = [p for p in papers if p.source.lower() == source.lower()]
+
+    return papers
 
 
 # ── Stats ────────────────────────────────────────────────────────────────────
@@ -41,24 +75,7 @@ def list_all_papers(
     source: str = Query("all"),
     config: Config = Depends(get_config),
 ):
-    papers = load_papers(config.screen_dir / "screen_results.json")
-    if not papers:
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
-
-    # Filter
-    if decision == "eligible_included":
-        elig_papers = load_papers(config.eligibility_dir / "eligible_included.json")
-        elig_ids = {p.id for p in elig_papers}
-        papers = [p for p in papers if p.id in elig_ids]
-    elif decision == "eligible_excluded":
-        elig_papers = load_papers(config.eligibility_dir / "eligible_excluded.json")
-        elig_ids = {p.id for p in elig_papers}
-        papers = [p for p in papers if p.id in elig_ids]
-    elif decision != "all":
-        papers = [p for p in papers if (p.screen_decision or "").lower() == decision.lower()]
-    if source != "all":
-        papers = [p for p in papers if p.source.lower() == source.lower()]
-
+    papers = _load_filtered_papers(config, decision, source)
     total = len(papers)
     start = (page - 1) * per_page
     end = start + per_page
@@ -84,6 +101,48 @@ def list_all_papers(
             for p in page_papers
         ],
     }
+
+
+# ── Export (on-demand, filtered) ─────────────────────────────────────────────
+
+@router.get("/papers/export/{fmt}")
+def export_papers(
+    fmt: str,
+    decision: str = Query("all"),
+    source: str = Query("all"),
+    fields: str = Query(""),
+    config: Config = Depends(get_config),
+):
+    """Export filtered papers as CSV or BibTeX on demand."""
+    if fmt not in ("csv", "bib"):
+        return {"error": "Format must be 'csv' or 'bib'"}
+
+    papers = _load_filtered_papers(config, decision, source)
+    if not papers:
+        return {"error": "No papers match the current filters."}
+
+    # Build filename
+    parts = ["papers"]
+    if decision != "all":
+        parts.append(decision)
+    if source != "all":
+        parts.append(source)
+    filename = "_".join(parts) + f".{fmt}"
+
+    # Write to temp file
+    tmp = Path(tempfile.mktemp(suffix=f".{fmt}"))
+    if fmt == "csv":
+        field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
+        # Validate fields
+        if field_list:
+            field_list = [f for f in field_list if f in ALL_CSV_FIELDS]
+        export_csv(papers, tmp, fields=field_list or None)
+        media = "text/csv"
+    else:
+        export_bibtex(papers, tmp)
+        media = "application/x-bibtex"
+
+    return FileResponse(tmp, media_type=media, filename=filename)
 
 
 # ── First-pass screening ─────────────────────────────────────────────────────
