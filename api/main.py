@@ -100,7 +100,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PRISMA Review Tool API",
     description="REST API for PRISMA 2020 systematic literature reviews",
-    version="1.5.0",
+    version="1.5.1",
     lifespan=lifespan,
 )
 

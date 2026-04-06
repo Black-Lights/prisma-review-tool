@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import {
   LayoutDashboard,
   ListFilter,
@@ -13,6 +14,7 @@ import {
   HelpCircle,
   FolderOpen,
   ChevronRight,
+  Info,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveProject } from "@/lib/api";
@@ -29,9 +31,12 @@ const navItems = [
   { label: "MCP Settings", href: "/mcp-settings", icon: Plug },
 ];
 
+const APP_VERSION = "1.5.1";
+
 export function Sidebar() {
   const pathname = usePathname();
   const { start } = useTutorial();
+  const [showAbout, setShowAbout] = useState(false);
   const { data: activeProject } = useQuery({
     queryKey: ["active-project"],
     queryFn: fetchActiveProject,
@@ -127,7 +132,13 @@ export function Sidebar() {
 
       {/* Footer */}
       <div className="px-5 py-4 flex items-center justify-between">
-        <span className="text-[11px] text-text-muted">v1.2.0 · MIT License</span>
+        <button
+          onClick={() => setShowAbout(true)}
+          className="flex items-center gap-1.5 text-[11px] text-text-muted hover:text-primary transition-colors cursor-pointer"
+        >
+          <Info size={12} />
+          v{APP_VERSION}
+        </button>
         <a
           href="https://github.com/Black-Lights/prisma-review-tool"
           target="_blank"
@@ -139,6 +150,116 @@ export function Sidebar() {
           </svg>
         </a>
       </div>
+
+      {/* About Modal */}
+      {showAbout && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowAbout(false); }}
+        >
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative glass-elevated p-0 w-full max-w-md mx-4 shadow-2xl" style={{ animation: "modalIn 0.2s ease-out" }}>
+            <div className="p-6 space-y-4">
+              {/* Logo + Title */}
+              <div className="flex items-center gap-4">
+                <svg width="40" height="40" viewBox="0 0 32 32" fill="none" className="shrink-0">
+                  <path d="M16 2L28 10V22L16 30L4 22V10L16 2Z" fill="rgba(125,211,252,0.15)" stroke="#7dd3fc" strokeWidth="1.5" />
+                  <path d="M16 2L28 10L16 18L4 10L16 2Z" fill="rgba(125,211,252,0.25)" stroke="#7dd3fc" strokeWidth="1" />
+                  <path d="M16 18V30" stroke="#7dd3fc" strokeWidth="1.5" />
+                </svg>
+                <div>
+                  <h3 className="text-lg font-bold text-text-primary">PRISMA Review Tool</h3>
+                  <p className="text-sm text-text-muted">v{APP_VERSION}</p>
+                </div>
+              </div>
+
+              {/* Description */}
+              <p className="text-sm text-text-secondary leading-relaxed">
+                Automated systematic literature review following the PRISMA 2020 guidelines
+                (Page et al., BMJ 2021;372:n71). Search academic databases, deduplicate,
+                screen with keyword rules and AI, generate PRISMA flow diagrams, and export results.
+              </p>
+
+              {/* Details */}
+              <div className="space-y-2 text-xs">
+                <div className="flex justify-between py-1.5 border-b border-border-glass">
+                  <span className="text-text-muted">Created by</span>
+                  <span className="text-text-primary">Mohammad Ammar Mughees</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-glass">
+                  <span className="text-text-muted">License</span>
+                  <span className="text-text-primary">MIT</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-glass">
+                  <span className="text-text-muted">Python</span>
+                  <span className="text-text-primary">3.10+</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-glass">
+                  <span className="text-text-muted">Node.js</span>
+                  <span className="text-text-primary">18+</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-border-glass">
+                  <span className="text-text-muted">PRISMA Standard</span>
+                  <span className="text-text-primary">PRISMA 2020 (Page et al., 2021)</span>
+                </div>
+              </div>
+
+              {/* Citation */}
+              <div>
+                <p className="text-xs text-text-muted mb-1.5">Cite as:</p>
+                <div className="bg-bg-glass rounded-lg p-3 text-[11px] text-text-secondary font-mono leading-relaxed select-all">
+                  Mughees, M. A. (2026). PRISMA Review Tool: AI-Assisted Systematic Literature Review [Software]. https://github.com/Black-Lights/prisma-review-tool
+                </div>
+              </div>
+
+              {/* Links */}
+              <div className="flex gap-3">
+                <a
+                  href="https://github.com/Black-Lights/prisma-review-tool"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-center px-3 py-2 rounded-lg text-xs font-medium bg-bg-glass text-text-secondary border border-border-glass hover:text-text-primary hover:border-border-glass-hover transition-colors"
+                >
+                  GitHub
+                </a>
+                <a
+                  href="https://github.com/Black-Lights/prisma-review-tool/issues"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-center px-3 py-2 rounded-lg text-xs font-medium bg-bg-glass text-text-secondary border border-border-glass hover:text-text-primary hover:border-border-glass-hover transition-colors"
+                >
+                  Report Issue
+                </a>
+                <a
+                  href="https://github.com/Black-Lights/prisma-review-tool/blob/main/CHANGELOG.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-center px-3 py-2 rounded-lg text-xs font-medium bg-bg-glass text-text-secondary border border-border-glass hover:text-text-primary hover:border-border-glass-hover transition-colors"
+                >
+                  Changelog
+                </a>
+              </div>
+            </div>
+
+            {/* Close */}
+            <div className="flex justify-end px-6 py-4 border-t border-border-glass">
+              <button
+                onClick={() => setShowAbout(false)}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-primary/15 text-primary hover:bg-primary/25 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+
+          <style jsx>{`
+            @keyframes modalIn {
+              from { opacity: 0; transform: scale(0.95) translateY(8px); }
+              to { opacity: 1; transform: scale(1) translateY(0); }
+            }
+          `}</style>
+        </div>
+      )}
     </aside>
   );
 }
