@@ -79,7 +79,7 @@ export function Sidebar() {
           <span className="text-text-primary font-bold text-base tracking-tight">
             PRISMA Review
           </span>
-          <span className="text-text-muted text-xs font-light">Tool</span>
+          <span className="text-text-muted text-xs font-light">v{APP_VERSION}</span>
         </div>
       </div>
 
