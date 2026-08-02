@@ -1,6 +1,12 @@
 .venv/
 prisma_output/
 config.yaml
+# Local config variants (backups, per-run copies) may hold live API keys.
+config.*.yaml
+config.*.yml
+config.local.*
+# ...but the checked-in template must stay tracked.
+!config.template.yaml
 .mcp.json
 __pycache__/
 *.pyc
