@@ -13,3 +13,9 @@ __pycache__/
 *.egg-info/
 server_err.txt
 /projects/
+# Agentes LangGraph (agents/) — segredos e artefatos de runtime local
+agents/.env
+agents/dev-out.log
+agents/dev-err.log
+agents/.langgraph_api/
+node_modules/

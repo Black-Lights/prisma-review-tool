@@ -1,0 +1,17 @@
+[project]
+name = "prisma-agents"
+version = "0.1.0"
+description = "Grafo de agentes (LangGraph) para o pipeline PRISMA 2020 — search, dedup, screen, eligibility, report."
+requires-python = ">=3.11"
+dependencies = [
+  "langgraph>=0.2",
+  "langgraph-cli[inmem]>=0.1",
+  "langchain-anthropic>=0.3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["src"]

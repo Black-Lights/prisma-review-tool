@@ -15,6 +15,8 @@ import {
   FolderOpen,
   ChevronRight,
   Info,
+  Workflow,
+  Bot,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveProject } from "@/lib/api";
@@ -26,6 +28,8 @@ const navItems = [
   { label: "Screening", href: "/screening", icon: ListFilter },
   { label: "Eligibility", href: "/eligibility", icon: CheckSquare },
   { label: "All Papers", href: "/papers", icon: Library },
+  { label: "Graph Canvas", href: "/canvas", icon: Workflow },
+  { label: "Agentes PRISMA", href: "/canvas/agents", icon: Bot },
   { label: "Settings", href: "/settings", icon: Sliders },
   { label: "Downloads", href: "/downloads", icon: HardDriveDownload },
   { label: "MCP Settings", href: "/mcp-settings", icon: Plug },

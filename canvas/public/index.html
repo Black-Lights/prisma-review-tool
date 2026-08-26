@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <title>graph-canvas</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>graph-canvas</h1>
+    <span id="status-pill" class="pill">conectando…</span>
+    <div class="toolbar">
+      <button id="btn-add-node">+ Novo nó</button>
+      <button id="btn-run" class="btn-run">▶ Executar tudo</button>
+      <button id="btn-reset" class="btn-danger">Limpar tudo</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="canvas-wrap">
+      <svg id="canvas"></svg>
+    </section>
+
+    <aside id="detail">
+      <h2>Propriedades</h2>
+      <p class="muted">Clique num nó pra configurar, ou arraste da bolinha da direita de um nó até outro pra conectar.</p>
+    </aside>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

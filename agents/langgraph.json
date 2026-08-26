@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "prisma_agents": "./src/graph.py:graph"
+  },
+  "env": ".env"
+}

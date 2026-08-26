@@ -1,0 +1,10 @@
+{
+  "name": "graph-canvas",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Editor visual de nós (estilo n8n/LangGraph) para desenhar e rodar arquiteturas de grafo.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
