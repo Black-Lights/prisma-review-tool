@@ -20,7 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.deps import init_config, get_projects_dir
-from api.routes import papers, pipeline, reports, config_routes, projects
+from api.routes import papers, pipeline, reports, config_routes, projects, events
 
 
 def _slugify(text: str) -> str:
@@ -117,6 +117,7 @@ app.include_router(papers.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(config_routes.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
+app.include_router(events.router, prefix="/api")
 
 
 @app.get("/api/health")

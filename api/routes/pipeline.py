@@ -11,7 +11,7 @@ from prisma_review.config import Config
 from prisma_review.models import load_papers, save_papers
 from prisma_review.search.runner import run_all_searches
 from prisma_review.dedup import deduplicate, save_dedup_log
-from prisma_review.screen import screen_by_rules, get_by_decision
+from prisma_review.screen import screen_by_rules, get_by_decision, count_excluded_by_required
 from prisma_review.diagram import load_state, save_state
 
 from api.deps import get_config, get_file_lock, get_session_manager
@@ -20,7 +20,7 @@ from api.session import SessionManager
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
-# ── Status / progress ────────────────────────────────────────────────
+# ── Status / progress ─────────────────────────────────────
 
 @router.get("/status")
 def pipeline_status(config: Config = Depends(get_config)):
@@ -29,12 +29,16 @@ def pipeline_status(config: Config = Depends(get_config)):
 
 
 @router.get("/progress")
-def pipeline_progress(session: SessionManager = Depends(get_session_manager)):
-    """Fast polling endpoint — returns in-memory progress, no disk I/O."""
-    return session.get_progress()
+def pipeline_progress(
+    config: Config = Depends(get_config),
+    session: SessionManager = Depends(get_session_manager),
+):
+    """Polling endpoint — in-memory progress reconciled with the active
+    project's state file, so MCP-driven runs are visible here too."""
+    return session.get_progress(config.state_file)
 
 
-# ── Background execution ─────────────────────────────────────────────
+# ── Background execution ────────────────────────────────
 
 @router.post("/start")
 def start_pipeline(
@@ -71,7 +75,7 @@ def stop_pipeline(session: SessionManager = Depends(get_session_manager)):
     return {"status": "cancel_requested"}
 
 
-# ── Synchronous (legacy) endpoints ───────────────────────────────────
+# ── Synchronous (legacy) endpoints ────────────────────────
 
 @router.post("/search")
 def run_search(config: Config = Depends(get_config), lock=Depends(get_file_lock)):
@@ -81,9 +85,9 @@ def run_search(config: Config = Depends(get_config), lock=Depends(get_file_lock)
         all_papers = []
         source_counts = {}
         for key, papers in results.items():
-            source_name = key.split("_")[0]
-            source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
             all_papers.extend(papers)
+            for paper in papers:
+                source_counts[paper.source] = source_counts.get(paper.source, 0) + 1
 
         save_papers(all_papers, config.search_dir / "all_records.json")
 
@@ -119,10 +123,12 @@ def run_screen(config: Config = Depends(get_config), lock=Depends(get_file_lock)
         return {"error": "No papers found. Run dedup first."}
 
     with lock:
-        papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords, config.min_include_hits)
+        papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords,
+                                 config.min_include_hits, config.required_keywords)
         included = get_by_decision(papers, "include")
         excluded = get_by_decision(papers, "exclude")
         maybe = get_by_decision(papers, "maybe")
+        excluded_no_required = count_excluded_by_required(excluded)
 
         save_papers(papers, config.screen_dir / "screen_results.json")
         save_papers(included, config.screen_dir / "included.json")
@@ -135,10 +141,12 @@ def run_screen(config: Config = Depends(get_config), lock=Depends(get_file_lock)
             "included": len(included),
             "excluded": len(excluded),
             "maybe": len(maybe),
+            "excluded_no_required_keyword": excluded_no_required,
         }
         save_state(state, config.state_file)
 
-    return {"status": "ok", "included": len(included), "excluded": len(excluded), "maybe": len(maybe)}
+    return {"status": "ok", "included": len(included), "excluded": len(excluded),
+            "maybe": len(maybe), "excluded_no_required_keyword": excluded_no_required}
 
 
 @router.post("/run-all")

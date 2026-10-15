@@ -9,6 +9,10 @@ from fastapi import HTTPException
 from prisma_review.config import Config
 
 _config: Config | None = None
+# Fingerprint of the config currently loaded into _config: (path, mtime_ns).
+# Lets get_config() detect when another process (e.g. the MCP server) switched
+# the active project or rewrote the config on disk, and reload accordingly.
+_config_source: tuple[str, int] | None = None
 _file_lock = threading.Lock()
 
 # Lazy-initialised session manager (needs _file_lock)
@@ -20,18 +24,49 @@ def get_projects_dir() -> Path:
     return Path(__file__).parent.parent / "projects"
 
 
+def _active_config_path() -> Path:
+    """Resolve the active project's config.yaml from disk, fresh every call.
+
+    Mirrors how the Projects/Settings routes read `.active_project`, so the API
+    follows project switches made by any process (including the MCP server).
+    """
+    projects_dir = get_projects_dir()
+    active_file = projects_dir / ".active_project"
+    if active_file.exists():
+        name = active_file.read_text(encoding="utf-8").strip()
+        candidate = projects_dir / name / "config.yaml"
+        if candidate.exists():
+            return candidate
+    return Path(__file__).parent.parent / "config.yaml"
+
+
+def _source_of(path: Path) -> tuple[str, int]:
+    try:
+        mtime = path.stat().st_mtime_ns
+    except OSError:
+        mtime = 0
+    return (str(path), mtime)
+
+
 def init_config(config_path: Path | None = None) -> None:
-    """Initialize the global config. Called once at app startup."""
-    global _config
+    """Load config into the global cache. Called at app startup and on writes."""
+    global _config, _config_source
     if config_path is None:
-        config_path = Path(__file__).parent.parent / "config.yaml"
+        config_path = _active_config_path()
     _config = Config.load(config_path)
+    _config_source = _source_of(config_path)
 
 
 def get_config() -> Config:
-    """Get the loaded config. Use as a FastAPI dependency."""
-    if _config is None:
-        init_config()
+    """Get the active config as a FastAPI dependency.
+
+    Re-resolves `.active_project` and the config file's mtime on every call and
+    reloads if either changed, so screens reflect project switches / config
+    edits made out-of-process (notably via the MCP server) without a restart.
+    """
+    path = _active_config_path()
+    if _config is None or _config_source != _source_of(path):
+        init_config(path)
     return _config
 
 

@@ -16,6 +16,12 @@ import requests
 
 from .models import Paper
 
+# Progress output must go to stderr: this module is imported by the stdio MCP
+# server, where stdout is the JSON-RPC channel and any stray byte corrupts it.
+import sys
+import functools
+print = functools.partial(print, file=sys.stderr)
+
 
 def _sanitize_filename(text: str, max_len: int = 80) -> str:
     """Create a safe filename from text."""

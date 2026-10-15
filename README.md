@@ -8,7 +8,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 
 ## Features
 
-- **Multi-database search**: arXiv, OpenAlex, Semantic Scholar (free, no API keys needed). Optional: Scopus.
+- **Multi-database search**: arXiv, Crossref, OpenAlex, Semantic Scholar (free, no API keys needed). Optional: Scopus.
 - **Automatic deduplication**: DOI matching + fuzzy title matching
 - **Two-pass screening**:
   - **Pass 1**: Rule-based keyword screening (automated, re-screenable with adjustable threshold)
@@ -103,7 +103,7 @@ Broad search queries in emerging fields often return hundreds of papers. A singl
 
 ```
 Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
-━━━━━━━━━━━━━━━━━━━━━          ━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━          ━━━━━━━━━━━━━━━━━━━━━
 1,600 records found             570 first-pass included
   → 57 duplicates removed         → AI reads each abstract
   → 973 excluded by rules         → Applies strict criteria

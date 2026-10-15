@@ -25,6 +25,23 @@ class Paper:
     source_id: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
 
+    # Filterable metadata, retained from each source so the post-request
+    # fallback in search.filters can evaluate them. The values are the RAW
+    # per-source strings (e.g. "article" from OpenAlex, "journal-article" from
+    # Crossref); search.filters maps canonical names to these. ``is_oa`` is
+    # tri-state: True/False when the source reports it, None when unknown (so
+    # the post-filter keeps a paper rather than excluding on missing data).
+    type: Optional[str] = None       # raw document type from the source
+    is_oa: Optional[bool] = None     # open-access flag (None = unknown)
+    issn: Optional[str] = None       # primary ISSN of the venue, if known
+
+    # Names of the configured queries (see config.queries) that returned this
+    # paper. A single-element list at search time; on dedup the canonical paper
+    # absorbs the query names of its duplicates, so a paper found by more than
+    # one query lists them all. Lets the report attribute results per query
+    # (with overlap — queries are OR'd, so a paper may belong to several).
+    matched_queries: list[str] = field(default_factory=list)
+
     # Screening fields (populated later)
     screen_decision: Optional[str] = None  # "include", "exclude", "maybe"
     screen_reason: Optional[str] = None

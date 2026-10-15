@@ -63,13 +63,14 @@ For reviews of more established fields, start earlier (e.g., 2015).
 
 ```yaml
 sources:
-  - arxiv               # Best for: CS, ML, Physics, Math preprints
+  - arxiv               # Best for: CS, ML, Physics, Math preprints (rate-limited)
+  - crossref            # Best for: Canonical DOI source, broad coverage (150M+ records)
   - openalex            # Best for: Broad coverage across all fields (250M+ papers)
-  - semantic_scholar    # Best for: CS, NLP, AI papers
+  - semantic_scholar    # Best for: CS, NLP, AI papers (rate-limited)
   # - scopus            # Best for: High-quality indexed journals (needs API key)
 ```
 
-OpenAlex is recommended as the primary source (most reliable, broadest coverage). Add Scopus if you have institutional access — it provides the best metadata quality.
+**Recommended combination**: Crossref + OpenAlex (both free, reliable, no rate limits). Add arXiv and Semantic Scholar for broader coverage, but be aware of rate limits. Add Scopus if you have institutional access — it provides the best metadata quality.
 
 **Scopus setup**: Get an API key from [dev.elsevier.com](https://dev.elsevier.com), add it under `api_keys.scopus` in your config. Requires institutional network access (VPN or campus IP). Usage must comply with the Elsevier API Service Agreement (academic research only).
 

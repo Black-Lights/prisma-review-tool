@@ -5,6 +5,13 @@ from __future__ import annotations
 import re
 import arxiv
 from ..models import Paper
+from .filters import SearchFilters, apply_post_filters
+
+# Progress output must go to stderr: this module is imported by the stdio MCP
+# server, where stdout is the JSON-RPC channel and any stray byte corrupts it.
+import sys
+import functools
+print = functools.partial(print, file=sys.stderr)
 
 
 def _translate_query(query: str) -> str:
@@ -23,8 +30,14 @@ def _translate_query(query: str) -> str:
     return result
 
 
-def search_arxiv(query: str, date_start: str, date_end: str, max_results: int = 500) -> list[Paper]:
-    """Search arXiv and return normalized Paper objects."""
+def search_arxiv(query: str, date_start: str, date_end: str, max_results: int = 500,
+                 filters: SearchFilters | None = None) -> list[Paper]:
+    """Search arXiv and return normalized Paper objects.
+
+    arXiv exposes no native facet for document type / open access / venue, so
+    source-side filters are handled by the post-request safety net only (every
+    arXiv record is a preprint and open access). See filters.filter_warnings.
+    """
     translated = _translate_query(query)
 
     client = arxiv.Client(page_size=50, delay_seconds=5.0, num_retries=5)
@@ -60,7 +73,13 @@ def search_arxiv(query: str, date_start: str, date_end: str, max_results: int = 
             keywords=list(result.categories) if result.categories else [],
             source="arxiv",
             source_id=result.entry_id,
+            type="preprint",
+            is_oa=True,
         )
         papers.append(paper)
+
+    # Post-request safety net (e.g. require_abstract; arXiv always has one).
+    if filters:
+        papers = apply_post_filters(papers, filters, "arxiv")
 
     return papers

@@ -67,15 +67,30 @@ def get_stats(config: Config = Depends(get_config)):
 
 # ── Browse all papers (paginated) ─────────────────────────────────────────────
 
+_SORT_KEYS = {
+    "title": lambda p: (p.title or "").lower(),
+    "authors": lambda p: (p.authors[0].lower() if p.authors else ""),
+    "year": lambda p: p.year or 0,
+    "source": lambda p: (p.source or "").lower(),
+    "decision": lambda p: (p.screen_decision or "").lower(),
+}
+
+
 @router.get("/papers")
 def list_all_papers(
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=1000),
     decision: str = Query("all"),
     source: str = Query("all"),
+    sort: str = Query("", pattern="^(|title|authors|year|source|decision)$"),
+    order: str = Query("asc", pattern="^(asc|desc)$"),
     config: Config = Depends(get_config),
 ):
     papers = _load_filtered_papers(config, decision, source)
+
+    if sort:
+        papers = sorted(papers, key=_SORT_KEYS[sort], reverse=(order == "desc"))
+
     total = len(papers)
     start = (page - 1) * per_page
     end = start + per_page
@@ -157,7 +172,7 @@ def rescreen_papers(
 
     Does NOT re-search or re-deduplicate — only re-applies screening rules.
     """
-    from prisma_review.screen import screen_by_rules, get_by_decision
+    from prisma_review.screen import screen_by_rules, get_by_decision, count_excluded_by_required
 
     papers = load_papers(config.dedup_dir / "deduplicated.json")
     if not papers:
@@ -171,11 +186,13 @@ def rescreen_papers(
             p.screen_method = None
 
     papers = screen_by_rules(
-        papers, config.include_keywords, config.exclude_keywords, min_include_hits
+        papers, config.include_keywords, config.exclude_keywords,
+        min_include_hits, config.required_keywords,
     )
     included = get_by_decision(papers, "include")
     excluded = get_by_decision(papers, "exclude")
     maybe = get_by_decision(papers, "maybe")
+    excluded_no_required = count_excluded_by_required(excluded)
 
     with lock:
         save_papers(papers, config.screen_dir / "screen_results.json")
@@ -195,6 +212,7 @@ def rescreen_papers(
             "included": len(included),
             "excluded": len(excluded),
             "maybe": len(maybe),
+            "excluded_no_required_keyword": excluded_no_required,
         }
         state.pop("eligibility", None)
         save_state(state, config.state_file)
@@ -202,6 +220,7 @@ def rescreen_papers(
     return {
         "status": "ok",
         "min_include_hits": min_include_hits,
+        "excluded_no_required_keyword": excluded_no_required,
         "included": len(included),
         "excluded": len(excluded),
         "maybe": len(maybe),

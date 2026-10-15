@@ -38,8 +38,18 @@ export const eligibilityScreen = (id: string, decision: string, reason: string) 
   });
 
 // Browse all papers (paginated)
-export const fetchAllPapers = (page = 1, perPage = 20, decision = "all", source = "all") =>
-  request<PaginatedPapersResponse>(`/api/papers?page=${page}&per_page=${perPage}&decision=${decision}&source=${source}`);
+export const fetchAllPapers = (
+  page = 1,
+  perPage = 20,
+  decision = "all",
+  source = "all",
+  sort = "",
+  order: "asc" | "desc" = "asc",
+) =>
+  request<PaginatedPapersResponse>(
+    `/api/papers?page=${page}&per_page=${perPage}&decision=${decision}&source=${source}` +
+      (sort ? `&sort=${sort}&order=${order}` : ""),
+  );
 
 // Re-screen with different threshold
 export const rescreenPapers = (minIncludeHits: number) =>
@@ -66,6 +76,8 @@ export const stopPipeline = () =>
   request<{ status: string }>("/api/pipeline/stop", { method: "POST" });
 
 // Reports
+export const fetchReportByQuery = () => request<ReportByQueryResponse>("/api/reports/by-query");
+export const fetchFilterPlan = () => request<FilterPlanResponse>("/api/reports/filter-plan");
 export const generateReport = () => request<any>("/api/reports/generate", { method: "POST" });
 export const downloadPapers = () => request<any>("/api/papers/download", { method: "POST" });
 export const fetchDownloadLog = () => request<DownloadLogResponse>("/api/papers/downloads");
@@ -139,6 +151,33 @@ export interface StatsResponse {
   dedup: Record<string, number>;
   screen: Record<string, number>;
   eligibility: Record<string, number>;
+}
+
+export interface QueryReportRow {
+  name: string;
+  terms: string;
+  found_raw: number;
+  after_dedup: number;
+  included: number;
+  maybe: number;
+  excluded: number;
+}
+
+export interface ReportByQueryResponse {
+  queries: QueryReportRow[];
+  total_after_dedup: number;
+  total_included: number;
+  untagged: { raw: number; screened: number };
+  error?: string;
+}
+
+export type FilterMode = "request" | "post" | "unsupported";
+
+export interface FilterPlanResponse {
+  sources: string[];
+  filters: { filter: string; by_source: Record<string, FilterMode> }[];
+  empty: boolean;
+  error?: string;
 }
 
 export interface PaperSummary {

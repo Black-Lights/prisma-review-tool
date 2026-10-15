@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchAllPapers, searchPapers } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import Link from "next/link";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import ExportModal from "@/components/ExportModal";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
@@ -16,10 +16,11 @@ const decisionColor: Record<string, string> = {
 };
 
 const sourceColor: Record<string, string> = {
+  arxiv: "bg-accent-amber/15 text-accent-amber",
+  crossref: "bg-blue-500/15 text-blue-400",
   openalex: "bg-primary/15 text-primary",
   scopus: "bg-accent-green/15 text-accent-green",
-  arxiv: "bg-accent-purple/15 text-accent-purple",
-  semantic_scholar: "bg-accent-amber/15 text-accent-amber",
+  semantic_scholar: "bg-accent-purple/15 text-accent-purple",
 };
 
 export default function PapersPage() {
@@ -30,13 +31,22 @@ export default function PapersPage() {
   );
 }
 
-const PAPERS_DEFAULTS = { page: 1, decision: "all", source: "all" } as const;
+const PAPERS_DEFAULTS = { page: 1, decision: "all", source: "all", sort: "", order: "asc", perPage: 25 };
+
+const SORT_COLUMNS: { key: string; label: string; sortable: boolean }[] = [
+  { key: "title", label: "Title", sortable: true },
+  { key: "authors", label: "Authors", sortable: true },
+  { key: "year", label: "Year", sortable: true },
+  { key: "source", label: "Source", sortable: true },
+  { key: "decision", label: "Decision", sortable: true },
+];
 
 function PapersContent() {
-  const perPage = 25;
-
-  const { filters, setFilter } = usePersistedFilters("papers", PAPERS_DEFAULTS);
+  const { filters, setFilter, setFilters } = usePersistedFilters("papers", PAPERS_DEFAULTS);
   const { page, decision: decisionFilter, source: sourceFilter } = filters;
+  const sort = String(filters.sort ?? "");
+  const order = (filters.order === "desc" ? "desc" : "asc") as "asc" | "desc";
+  const perPage = Math.min(1000, Math.max(1, Number(filters.perPage) || 25));
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -51,11 +61,23 @@ function PapersContent() {
 
   // Paginated papers from API
   const { data, isLoading, isPlaceholderData } = useQuery({
-    queryKey: ["all-papers", page, perPage, decisionFilter, sourceFilter],
-    queryFn: () => fetchAllPapers(page, perPage, decisionFilter, sourceFilter),
+    queryKey: ["all-papers", page, perPage, decisionFilter, sourceFilter, sort, order],
+    queryFn: () => fetchAllPapers(page, perPage, decisionFilter, sourceFilter, sort, order),
     placeholderData: (prev) => prev,
     staleTime: 30_000,
   });
+
+  // Click a column header: same column toggles direction, new column sorts asc.
+  // Sorting applies to the paginated browse only (search has its own ordering).
+  const handleSort = (key: string) => {
+    if (showSearch) return;
+    setFilters((prev) => {
+      if (prev.sort === key) {
+        return { ...prev, order: prev.order === "asc" ? "desc" : "asc", page: 1 };
+      }
+      return { ...prev, sort: key, order: "asc", page: 1 };
+    });
+  };
 
   // Search
   const { data: searchData, isFetching: isSearching } = useQuery({
@@ -120,11 +142,28 @@ function PapersContent() {
         </select>
         <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="glass-input text-sm">
           <option value="all">Source: All</option>
+          <option value="arxiv">arXiv</option>
+          <option value="crossref">Crossref</option>
           <option value="openalex">OpenAlex</option>
           <option value="scopus">Scopus</option>
-          <option value="arxiv">arXiv</option>
           <option value="semantic_scholar">Semantic Scholar</option>
         </select>
+        <label className="flex items-center gap-2 text-sm text-text-muted">
+          <span>Show</span>
+          <input
+            type="number"
+            min={1}
+            max={1000}
+            value={perPage}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (!Number.isNaN(v) && v >= 1) setFilter("perPage", Math.min(1000, v), true);
+            }}
+            className="glass-input w-20 text-sm"
+            title="Rows shown per page (max 1000)"
+          />
+          <span>per page</span>
+        </label>
         <div data-tutorial="export-buttons" className="ml-auto flex gap-2">
           <button onClick={() => setExportFormat("csv")} className="rounded-lg bg-accent-green/15 px-4 py-2 text-sm font-medium text-accent-green hover:bg-accent-green/25">
             Export CSV
@@ -144,11 +183,29 @@ function PapersContent() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border-glass text-left text-text-muted">
-                <th className="px-5 py-3 font-medium">Title</th>
-                <th className="px-5 py-3 font-medium">Authors</th>
-                <th className="px-5 py-3 font-medium">Year</th>
-                <th className="px-5 py-3 font-medium">Source</th>
-                <th className="px-5 py-3 font-medium">Decision</th>
+                {SORT_COLUMNS.map((col) => {
+                  const active = sort === col.key;
+                  return (
+                    <th
+                      key={col.key}
+                      onClick={() => handleSort(col.key)}
+                      aria-sort={active ? (order === "asc" ? "ascending" : "descending") : "none"}
+                      className={`px-5 py-3 font-medium select-none ${
+                        showSearch ? "cursor-default" : "cursor-pointer hover:text-text-secondary"
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        {col.label}
+                        {!showSearch &&
+                          (active ? (
+                            order === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+                          ) : (
+                            <ChevronsUpDown size={14} className="opacity-30" />
+                          ))}
+                      </span>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -160,7 +217,7 @@ function PapersContent() {
                     </Link>
                   </td>
                   <td className="px-5 py-3 text-text-secondary max-w-[200px] truncate">
-                    {paper.authors || "\u2014"}
+                    {paper.authors || "—"}
                   </td>
                   <td className="px-5 py-3 text-text-secondary">{paper.year}</td>
                   <td className="px-5 py-3">

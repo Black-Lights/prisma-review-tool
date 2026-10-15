@@ -5,7 +5,7 @@
 #   cp config.template.yaml config.yaml
 #
 # STEP 1: Name your project
-# STEP 2: Add API keys (optional — arXiv, OpenAlex, Semantic Scholar are free)
+# STEP 2: Add API keys (optional — arXiv, Crossref, OpenAlex, Semantic Scholar are free)
 # STEP 3: Define your search queries (use Boolean AND/OR operators)
 # STEP 4: Set your inclusion/exclusion keywords for screening
 # ============================================================
@@ -31,14 +31,26 @@ search:
   max_results_per_query: 500  # Max papers per query per source (safety cap)
 
   # Which databases to search (comment out to disable)
-  # NOTE: OpenAlex is the most reliable. arXiv and Semantic Scholar have
+  # NOTE: Crossref and OpenAlex are the most reliable. arXiv and Semantic Scholar have
   # aggressive rate limits that cause slow searches and 0-result failures.
-  # Recommend starting with openalex only, add others if needed.
+  # Recommend: crossref + openalex; add arxiv/semantic_scholar if you need more results.
   sources:
+    - arxiv               # Free, but rate-limits aggressively (HTTP 429)
+    - crossref            # Free, 150M+ records, canonical DOI source (recommended)
     - openalex            # Free, 250M+ papers, most reliable (recommended)
-    # - arxiv             # Free, but rate-limits aggressively (HTTP 429)
-    # - semantic_scholar  # Free, but rate-limits heavily (often returns 0)
+    - semantic_scholar    # Free, but rate-limits heavily (often returns 0)
     # - scopus            # Needs API key, best metadata quality
+
+  # --- Source-side filters (optional; all empty/false = no filtering) ---
+  # Applied AT THE REQUEST when the source supports the facet natively
+  # (server-side), and re-checked AFTER the request as a safety net. When a
+  # source can't express a filter, it is applied locally and a warning is
+  # emitted (see the pipeline `warnings`). Leave a field empty to disable it.
+  filters:
+    document_types: []          # e.g. ["journal-article", "review", "conference-paper"]
+    require_abstract: false     # drop records with no abstract (needed for screening)
+    open_access: false          # true = only open-access records
+    venues: []                  # ISSNs ("1234-567X") or journal names to restrict to
 
   # Search queries — use Boolean operators: AND, OR
   # Wrap phrases in quotes: "machine learning"

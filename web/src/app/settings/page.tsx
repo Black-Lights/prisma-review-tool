@@ -10,6 +10,7 @@ import {
   Search,
   FileText,
   Filter,
+  SlidersHorizontal,
   Key,
   Save,
   RotateCcw,
@@ -17,11 +18,22 @@ import {
   Plus,
 } from "lucide-react";
 
-const SOURCES = ["arxiv", "openalex", "semantic_scholar", "scopus"] as const;
+const SOURCES = ["arxiv", "crossref", "openalex", "semantic_scholar", "scopus"] as const;
+
+// Canonical document types the backend (search.filters) knows how to map per
+// source. Keep in sync with prisma_review/search/filters.py (_DOC_TYPE_MAP).
+const DOC_TYPES = [
+  "journal-article",
+  "review",
+  "conference-paper",
+  "book-chapter",
+  "preprint",
+] as const;
 
 const SOURCE_INFO: Record<string, { label: string; note: string; reliable: boolean }> = {
-  openalex: { label: "OpenAlex", note: "250M+ papers, most reliable", reliable: true },
   arxiv: { label: "arXiv", note: "Rate-limits aggressively, may return partial results", reliable: false },
+  crossref: { label: "Crossref", note: "150M+ records, free, no API key", reliable: true },
+  openalex: { label: "OpenAlex", note: "250M+ papers, most reliable", reliable: true },
   semantic_scholar: { label: "Semantic Scholar", note: "Heavy rate limits, often returns 0 results", reliable: false },
   scopus: { label: "Scopus", note: "Requires API key", reliable: true },
 };
@@ -36,6 +48,8 @@ export default function SettingsPage() {
   const [form, setForm] = useState<any>(null);
   const [includeInput, setIncludeInput] = useState("");
   const [excludeInput, setExcludeInput] = useState("");
+  const [requiredInput, setRequiredInput] = useState("");
+  const [venuesInput, setVenuesInput] = useState("");
 
   useEffect(() => {
     if (config && !form) {
@@ -68,7 +82,7 @@ export default function SettingsPage() {
     });
   };
 
-  const addKeyword = (type: "include_keywords" | "exclude_keywords", value: string) => {
+  const addKeyword = (type: "include_keywords" | "exclude_keywords" | "required_keywords", value: string) => {
     if (!value.trim()) return;
     setForm((prev: any) => {
       const next = structuredClone(prev);
@@ -83,11 +97,47 @@ export default function SettingsPage() {
     });
   };
 
-  const removeKeyword = (type: "include_keywords" | "exclude_keywords", index: number) => {
+  const removeKeyword = (type: "include_keywords" | "exclude_keywords" | "required_keywords", index: number) => {
     setForm((prev: any) => {
       const next = structuredClone(prev);
       next.screening.rules[type].splice(index, 1);
       return next;
+    });
+  };
+
+  // Ensure search.filters exists, then run a mutator over it.
+  const mutateFilters = (fn: (filters: any) => void) => {
+    setForm((prev: any) => {
+      const next = structuredClone(prev);
+      if (!next.search) next.search = {};
+      if (!next.search.filters) next.search.filters = {};
+      fn(next.search.filters);
+      return next;
+    });
+  };
+
+  const toggleDocType = (docType: string) => {
+    mutateFilters((filters) => {
+      const list: string[] = filters.document_types ?? [];
+      const idx = list.indexOf(docType);
+      if (idx >= 0) list.splice(idx, 1);
+      else list.push(docType);
+      filters.document_types = list;
+    });
+  };
+
+  const addVenue = (value: string) => {
+    if (!value.trim()) return;
+    mutateFilters((filters) => {
+      const list: string[] = filters.venues ?? [];
+      if (!list.includes(value.trim())) list.push(value.trim());
+      filters.venues = list;
+    });
+  };
+
+  const removeVenue = (index: number) => {
+    mutateFilters((filters) => {
+      (filters.venues ?? []).splice(index, 1);
     });
   };
 
@@ -334,7 +384,7 @@ export default function SettingsPage() {
               <p className="font-semibold text-text-primary">How screening works</p>
               <ul className="text-text-secondary space-y-1.5 list-none">
                 <li><span className="text-accent-green font-semibold">Include</span> — paper matches ≥ minimum threshold of include keywords AND 0 exclude keywords</li>
-                <li><span className="text-accent-red font-semibold">Exclude</span> — paper matches any exclude keyword</li>
+                <li><span className="text-accent-red font-semibold">Exclude</span> — paper matches any exclude keyword, OR (if required keywords are set) matches none of them</li>
                 <li><span className="text-accent-amber font-semibold">Maybe</span> — not enough include keywords, no exclude match</li>
               </ul>
               <p className="text-text-muted pt-1 border-t border-border-glass">Example: with threshold=4 and 12 include keywords, a paper must mention at least 4 of them in title+abstract to be included.</p>
@@ -434,6 +484,63 @@ export default function SettingsPage() {
           </div>
         </div>
 
+        {/* Required Keywords */}
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm text-text-secondary">Required Keywords</label>
+            <div className="relative group">
+              <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">
+                i
+              </button>
+              <div className="absolute left-0 bottom-7 w-80 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1.5 shadow-xl">
+                <p className="text-text-primary font-medium">Optional gate. If any are set, a paper is auto-excluded unless it contains at least one of these terms in its title/abstract.</p>
+                <p className="text-text-muted">Leave empty to disable (default). Matching is substring + case-insensitive — list distinct forms of a concept separately.</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {(form?.screening?.rules?.required_keywords ?? []).map((kw: string, i: number) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-accent-amber/15 text-accent-amber border border-accent-amber/20"
+              >
+                {kw}
+                <button
+                  onClick={() => removeKeyword("required_keywords", i)}
+                  className="hover:text-text-primary"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2 max-w-md">
+            <input
+              type="text"
+              value={requiredInput}
+              onChange={(e) => setRequiredInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addKeyword("required_keywords", requiredInput);
+                  setRequiredInput("");
+                }
+              }}
+              className="glass-input flex-1"
+              placeholder='e.g. "wireless", "network"'
+            />
+            <button
+              onClick={() => {
+                addKeyword("required_keywords", requiredInput);
+                setRequiredInput("");
+              }}
+              className="flex items-center gap-1 px-3 py-2 rounded-lg border border-border-glass text-accent-amber hover:border-accent-amber/30"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
         {/* Min Include Hits */}
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -462,6 +569,136 @@ export default function SettingsPage() {
             min={1}
             max={10}
           />
+        </div>
+      </GlassCard>
+
+      {/* More filters (source-side filters) */}
+      <GlassCard data-tutorial="more-filters">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="w-5 h-5 text-primary" />
+            <h2 className="text-lg font-semibold text-text-primary">More filters</h2>
+          </div>
+          <div className="relative group">
+            <button className="flex items-center justify-center w-7 h-7 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-sm font-bold">
+              i
+            </button>
+            <div className="absolute right-0 top-9 w-96 glass-elevated p-4 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-sm space-y-2 shadow-xl">
+              <p className="font-semibold text-text-primary">How filters are applied</p>
+              <ul className="text-text-secondary space-y-1.5 list-none">
+                <li><span className="text-accent-green font-semibold">Server-side</span> — applied at the request when the source supports the facet (e.g. OpenAlex/Crossref document type, OpenAlex/Scopus open access).</li>
+                <li><span className="text-accent-amber font-semibold">Locally</span> — re-checked after fetch when the source has no such facet (e.g. open access on Crossref, abstract on Semantic Scholar).</li>
+                <li><span className="text-accent-red font-semibold">Ignored</span> — when a source can&apos;t express it at all (e.g. document types / venues on arXiv).</li>
+              </ul>
+              <p className="text-text-muted pt-1 border-t border-border-glass">Empty / off everywhere = no filtering (default). Run a search to see the per-source warnings.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Document types */}
+        <div className="mb-6">
+          <label className="block text-sm text-text-secondary mb-2">Document Types</label>
+          <div className="flex flex-wrap gap-2">
+            {DOC_TYPES.map((dt) => {
+              const active = (form?.search?.filters?.document_types ?? []).includes(dt);
+              return (
+                <button
+                  key={dt}
+                  onClick={() => toggleDocType(dt)}
+                  className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+                    active
+                      ? "bg-primary-dim text-primary border-primary/30"
+                      : "text-text-muted border-border-glass hover:border-border-glass-hover hover:text-text-secondary"
+                  }`}
+                >
+                  {dt}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-text-muted mt-2">None selected = all types. Not every type exists in every source (e.g. arXiv is preprint-only).</p>
+        </div>
+
+        {/* Toggles */}
+        <div className="mb-6 space-y-2">
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form?.search?.filters?.require_abstract ?? false}
+              onChange={(e) => mutateFilters((f) => (f.require_abstract = e.target.checked))}
+              className="w-4 h-4 accent-primary rounded shrink-0"
+            />
+            <span className="text-sm">
+              <span className="text-text-primary font-medium">Require abstract</span>
+              <span className="ml-1.5 text-xs text-text-muted">— drop records with no abstract (needed for keyword screening)</span>
+            </span>
+          </label>
+          <label className="flex items-center gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={form?.search?.filters?.open_access ?? false}
+              onChange={(e) => mutateFilters((f) => (f.open_access = e.target.checked))}
+              className="w-4 h-4 accent-primary rounded shrink-0"
+            />
+            <span className="text-sm">
+              <span className="text-text-primary font-medium">Open access only</span>
+              <span className="ml-1.5 text-xs text-text-muted">— keep only open-access records</span>
+            </span>
+          </label>
+        </div>
+
+        {/* Venues / ISSN */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <label className="block text-sm text-text-secondary">Venues / ISSN</label>
+            <div className="relative group">
+              <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">
+                i
+              </button>
+              <div className="absolute left-0 bottom-7 w-80 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1.5 shadow-xl">
+                <p className="text-text-primary font-medium">Restrict to specific journals.</p>
+                <p className="text-text-muted">Add an ISSN (e.g. &quot;1234-567X&quot;) or a journal name. ISSNs filter server-side on OpenAlex/Crossref/Scopus; names match the venue field (often locally).</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {(form?.search?.filters?.venues ?? []).map((v: string, i: number) => (
+              <span
+                key={i}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-primary-dim text-primary border border-primary/20"
+              >
+                {v}
+                <button onClick={() => removeVenue(i)} className="hover:text-text-primary">
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2 max-w-md">
+            <input
+              type="text"
+              value={venuesInput}
+              onChange={(e) => setVenuesInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addVenue(venuesInput);
+                  setVenuesInput("");
+                }
+              }}
+              className="glass-input flex-1"
+              placeholder='ISSN "1234-567X" or journal name'
+            />
+            <button
+              onClick={() => {
+                addVenue(venuesInput);
+                setVenuesInput("");
+              }}
+              className="flex items-center gap-1 px-3 py-2 rounded-lg border border-border-glass text-primary hover:border-primary/30"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </GlassCard>
 

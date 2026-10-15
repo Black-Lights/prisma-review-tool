@@ -48,6 +48,70 @@ def generate_report(config: Config = Depends(get_config)):
     }
 
 
+@router.get("/reports/by-query")
+def report_by_query(config: Config = Depends(get_config)):
+    """Attribute results to each configured query.
+
+    Counts are *with overlap*: queries are OR'd, so a paper returned by more
+    than one query is counted under each — the per-query sums therefore exceed
+    the distinct totals. ``found_raw`` is pre-dedup; the rest are on the
+    deduplicated/screened set. ``untagged`` are papers with no recorded query
+    (e.g. searched before per-query provenance was tracked)."""
+    queries = [
+        {"name": q.get("name", "unnamed"), "terms": (q.get("terms", "") or "").strip()}
+        for q in getattr(config, "queries", []) or []
+    ]
+
+    raw = load_papers(config.search_dir / "all_records.json")
+    screened = load_papers(config.screen_dir / "screen_results.json")
+    if not screened:
+        screened = load_papers(config.dedup_dir / "deduplicated.json")
+
+    def blank():
+        return {"found_raw": 0, "after_dedup": 0, "included": 0, "maybe": 0, "excluded": 0}
+
+    rows: dict[str, dict] = {q["name"]: blank() for q in queries}
+    untagged_raw = 0
+    for p in raw:
+        mq = getattr(p, "matched_queries", None) or []
+        if not mq:
+            untagged_raw += 1
+        for q in mq:
+            rows.setdefault(q, blank())["found_raw"] += 1
+
+    untagged_screened = 0
+    for p in screened:
+        mq = getattr(p, "matched_queries", None) or []
+        dec = (p.screen_decision or "").lower()
+        if not mq:
+            untagged_screened += 1
+        for q in mq:
+            r = rows.setdefault(q, blank())
+            r["after_dedup"] += 1
+            if dec == "include":
+                r["included"] += 1
+            elif dec == "maybe":
+                r["maybe"] += 1
+            elif dec == "exclude":
+                r["excluded"] += 1
+
+    terms_by_name = {q["name"]: q["terms"] for q in queries}
+    return {
+        "queries": [{"name": name, "terms": terms_by_name.get(name, ""), **counts}
+                    for name, counts in rows.items()],
+        "total_after_dedup": len(screened),
+        "total_included": sum(1 for p in screened if (p.screen_decision or "").lower() == "include"),
+        "untagged": {"raw": untagged_raw, "screened": untagged_screened},
+    }
+
+
+@router.get("/reports/filter-plan")
+def report_filter_plan(config: Config = Depends(get_config)):
+    """How each active source filter is applied per source (request/post/ignored)."""
+    from prisma_review.search.filters import filter_plan
+    return filter_plan(config)
+
+
 @router.get("/reports/prisma-flow")
 def get_prisma_flow(config: Config = Depends(get_config)):
     png_path = config.export_dir / "prisma_flow.png"

@@ -2,9 +2,10 @@
 
 import { Suspense, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Search, RefreshCw, SlidersHorizontal } from "lucide-react";
+import { Search, RefreshCw, SlidersHorizontal, ClipboardList } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
+import ReportPanel from "@/components/ReportPanel";
 import { fetchPapersToScreen, screenPaper, searchPapers, rescreenPapers, fetchStats, fetchConfig, updateConfig } from "@/lib/api";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
@@ -79,6 +80,8 @@ function ScreeningContent() {
 
   // Re-screen
   const [showRescreen, setShowRescreen] = useState(false);
+  // Report
+  const [showReport, setShowReport] = useState(false);
 
   // Load current config + stats
   const { data: configData } = useQuery({
@@ -129,14 +132,26 @@ function ScreeningContent() {
             {remaining} remaining
           </span>
         </div>
-        <button
-          onClick={() => setShowRescreen(!showRescreen)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
-        >
-          <SlidersHorizontal size={16} />
-          Re-screen
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowRescreen(!showRescreen)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
+          >
+            <SlidersHorizontal size={16} />
+            Re-screen
+          </button>
+          <button
+            onClick={() => setShowReport(!showReport)}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
+          >
+            <ClipboardList size={16} />
+            Report
+          </button>
+        </div>
       </div>
+
+      {/* Report panel */}
+      {showReport && <ReportPanel />}
 
       {/* Re-screen panel */}
       {showRescreen && (

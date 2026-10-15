@@ -7,11 +7,14 @@ make screening decisions, and generate reports — all via MCP.
 from __future__ import annotations
 
 import json
+import re
+import shutil
 import sys
 from pathlib import Path
 
 import threading
 
+import yaml
 from mcp.server.fastmcp import FastMCP
 
 # Add parent to path so we can import prisma_review
@@ -19,8 +22,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from prisma_review.config import Config
 from prisma_review.models import Paper, save_papers, load_papers
-from prisma_review.screen import get_by_decision
+from prisma_review.screen import get_by_decision, screen_by_rules, count_excluded_by_required
 from prisma_review.export import export_bibtex, export_csv
+from prisma_review.search.filters import filter_warnings
 from prisma_review.download import download_papers
 from prisma_review.diagram import (
     generate_markdown_diagram, generate_png_diagram,
@@ -31,16 +35,57 @@ from api.session import SessionManager
 # Initialize MCP server
 mcp = FastMCP("prisma-review")
 
-# Load config — resolve relative to this file's parent (prisma_tool/)
-CONFIG_PATH = Path(__file__).parent.parent / "config.yaml"
+# Config resolution — follow the web app's active-project selection so the MCP
+# server and the web UI always read/write the SAME config.yaml. Falls back to
+# the root config.yaml when no project is active (e.g. pure-CLI installs).
+_ROOT = Path(__file__).parent.parent
+_PROJECTS_DIR = _ROOT / "projects"
+CONFIG_PATH = _ROOT / "config.yaml"  # fallback / default
 
 # Shared file lock and singleton SessionManager for pipeline operations
 _file_lock = threading.Lock()
 _session_manager: SessionManager | None = None
 
 
+def _active_project_name() -> str | None:
+    """Active project name, mirroring the web app's projects/.active_project."""
+    marker = _PROJECTS_DIR / ".active_project"
+    if marker.exists():
+        return marker.read_text(encoding="utf-8").strip() or None
+    return None
+
+
+def _resolve_config_path() -> Path:
+    """Resolve config like api/main.py: active project's config, else root."""
+    name = _active_project_name()
+    if name:
+        candidate = _PROJECTS_DIR / name / "config.yaml"
+        if candidate.exists():
+            return candidate
+    return CONFIG_PATH
+
+
 def _get_config() -> Config:
-    return Config.load(CONFIG_PATH)
+    return Config.load(_resolve_config_path())
+
+
+def _slugify(text: str) -> str:
+    """Mirror the web app's project slug rules (api/routes/projects.py)."""
+    slug = text.lower().strip()
+    slug = re.sub(r"[^\w\s-]", "", slug)
+    slug = re.sub(r"[\s_]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug).strip("-")
+    return slug or "default-project"
+
+
+def _load_raw_config(path: Path) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
+def _save_raw_config(path: Path, data: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
 
 def _get_session_manager() -> SessionManager:
@@ -50,6 +95,24 @@ def _get_session_manager() -> SessionManager:
         config = _get_config()
         _session_manager = SessionManager(_file_lock, state_file=config.state_file)
     return _session_manager
+
+
+def _config_guard(config: Config, problems_key: str = "problems") -> str | None:
+    """Return a JSON error if the config isn't ready for the given scope, else None.
+
+    ``problems_key`` selects the relevant subset from ``Config.readiness()``:
+    "problems" (everything), "search_problems", or "screen_problems".
+    """
+    readiness = config.readiness()
+    problems = readiness.get(problems_key) or []
+    if problems:
+        return json.dumps({
+            "error": "Config not ready — your review configuration is still the template.",
+            "config_path": str(config.config_path or CONFIG_PATH),
+            "problems": problems,
+            "hint": "Inspect with get_review_config, fill in the config file, then retry.",
+        }, indent=2)
+    return None
 
 
 @mcp.tool()
@@ -68,6 +131,45 @@ def get_screening_stats() -> str:
         "screen": state.get("screen", {}),
     }
     return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def get_review_config() -> str:
+    """Inspect the review configuration this server will run (read-only).
+
+    Returns the config file path, project name, enabled sources, date window,
+    queries, screening rules, and source-side `filters`, plus `ready` (whether
+    the config is filled in or still the template) and `problems` listing
+    anything left unconfigured. The `filter_warnings` list reports, per source,
+    any configured filter that is applied locally after fetch (not server-side)
+    or unsupported and ignored — inspect it before start_pipeline. Use
+    set_review_config to change the filters.
+    """
+    config = _get_config()
+    readiness = config.readiness()
+    return json.dumps({
+        "config_path": str(config.config_path or CONFIG_PATH),
+        "project": config.project_name,
+        "sources": config.sources,
+        "date_range": {"start": config.date_start, "end": config.date_end},
+        "max_results_per_query": config.max_results,
+        "queries": config.queries,
+        "screening_rules": {
+            "include_keywords": config.include_keywords,
+            "exclude_keywords": config.exclude_keywords,
+            "min_include_hits": config.min_include_hits,
+            "required_keywords": config.required_keywords,
+        },
+        "filters": {
+            "document_types": config.filter_document_types,
+            "require_abstract": config.filter_require_abstract,
+            "open_access": config.filter_open_access,
+            "venues": config.filter_venues,
+        },
+        "filter_warnings": filter_warnings(config),
+        "ready": readiness["ready"],
+        "problems": readiness["problems"],
+    }, indent=2)
 
 
 @mcp.tool()
@@ -538,6 +640,315 @@ def download_eligible_papers() -> str:
     }, indent=2)
 
 
+# ── Configuration & Project Management ──────────────────────────────
+
+
+@mcp.tool()
+def set_review_config(
+    name: str | None = None,
+    sources: list[str] | None = None,
+    date_start: str | None = None,
+    date_end: str | None = None,
+    queries: str | None = None,
+    include_keywords: list[str] | None = None,
+    exclude_keywords: list[str] | None = None,
+    min_include_hits: int | None = None,
+    required_keywords: list[str] | None = None,
+    document_types: list[str] | None = None,
+    require_abstract: bool | None = None,
+    open_access: bool | None = None,
+    venues: list[str] | None = None,
+) -> str:
+    """Write the review configuration (the active project's config.yaml).
+
+    Only the fields you pass are changed; omit a field to leave it as-is. This
+    is the structured equivalent of the web Settings page — use it to set up a
+    review so the pipeline has real queries/criteria instead of the template.
+
+    Args:
+        name: Review/project title.
+        sources: Search sources, e.g. ["openalex"] (free) or ["openalex", "scopus"].
+        date_start: Publication window start, "YYYY-MM-DD".
+        date_end: Publication window end, "YYYY-MM-DD".
+        queries: JSON array string of {"name", "terms"} objects, e.g.
+            '[{"name": "main", "terms": "\\"graph foundation model\\" \\"wireless\\""}]'.
+            NOTE for OpenAlex (default free source): it ignores OR/NOT and uses
+            only the first 5 quoted phrases — write terms as a few key phrases,
+            not a full Boolean string. Call get_review_config afterwards to see
+            the per-source transparency warnings.
+        include_keywords: Screening include keywords.
+        exclude_keywords: Screening exclude keywords.
+        min_include_hits: How many include keywords must match to include a paper.
+        required_keywords: Optional gate. If non-empty, a paper is auto-excluded
+            unless it contains at least one of these terms in its title/abstract.
+            Empty list disables the gate (default). Substring, case-insensitive.
+        document_types: Source-side filter — restrict to these document types.
+            Canonical values: "journal-article", "review", "conference-paper",
+            "book-chapter", "preprint". Applied server-side where the source
+            supports it (e.g. OpenAlex type, Crossref type:journal-article,
+            Scopus DOCTYPE), and locally otherwise. Empty = no restriction.
+            Not every type exists in every source (e.g. arXiv is preprint-only,
+            Crossref has no "review") — call get_review_config afterwards and
+            read `filter_warnings` to see what is dropped or applied locally.
+        require_abstract: If true, drop records with no abstract (needed for
+            keyword screening). Server-side on OpenAlex/Crossref; applied locally
+            on the others.
+        open_access: If true, keep only open-access records. Server-side on
+            OpenAlex/Semantic Scholar/Scopus; applied locally on Crossref (it is
+            not an open-access index). arXiv is open access by nature.
+        venues: Restrict to these venues — give ISSNs ("1234-567X") and/or
+            journal names. ISSNs filter server-side on OpenAlex/Crossref/Scopus;
+            names match the venue field (locally on most sources). See
+            `filter_warnings` for which apply where.
+
+    Returns the resolved config path and the new readiness (ready/problems).
+    NOTE: filters are applied at request when the source supports the facet and
+    re-checked after fetch as a safety net; check `filter_warnings` from
+    get_review_config to see per-source behaviour.
+    """
+    path = _resolve_config_path()
+    if not path.exists():
+        return json.dumps({"error": f"Config file not found: {path}"})
+
+    parsed_queries = None
+    if queries is not None:
+        try:
+            parsed_queries = json.loads(queries)
+        except json.JSONDecodeError as e:
+            return json.dumps({"error": f"queries is not valid JSON: {e}"})
+        if (not isinstance(parsed_queries, list)
+                or not all(isinstance(q, dict) and "name" in q and "terms" in q
+                           for q in parsed_queries)):
+            return json.dumps({
+                "error": 'queries must be a JSON array of objects with "name" and "terms".',
+                "example": '[{"name": "main", "terms": "\\"key phrase\\" \\"another phrase\\""}]',
+            })
+
+    data = _load_raw_config(path)
+    data.setdefault("project", {})
+    data.setdefault("search", {})
+    data["search"].setdefault("date_range", {})
+    data["search"].setdefault("filters", {})
+    data.setdefault("screening", {})
+    data["screening"].setdefault("rules", {})
+
+    if name is not None:
+        data["project"]["name"] = name
+    if sources is not None:
+        data["search"]["sources"] = sources
+    if date_start is not None:
+        data["search"]["date_range"]["start"] = date_start
+    if date_end is not None:
+        data["search"]["date_range"]["end"] = date_end
+    if parsed_queries is not None:
+        data["search"]["queries"] = parsed_queries
+    if include_keywords is not None:
+        data["screening"]["rules"]["include_keywords"] = include_keywords
+    if exclude_keywords is not None:
+        data["screening"]["rules"]["exclude_keywords"] = exclude_keywords
+    if min_include_hits is not None:
+        data["screening"]["rules"]["min_include_hits"] = min_include_hits
+    if required_keywords is not None:
+        data["screening"]["rules"]["required_keywords"] = required_keywords
+    if document_types is not None:
+        data["search"]["filters"]["document_types"] = document_types
+    if require_abstract is not None:
+        data["search"]["filters"]["require_abstract"] = require_abstract
+    if open_access is not None:
+        data["search"]["filters"]["open_access"] = open_access
+    if venues is not None:
+        data["search"]["filters"]["venues"] = venues
+
+    _save_raw_config(path, data)
+
+    config = Config.load(path)
+    readiness = config.readiness()
+    return json.dumps({
+        "status": "ok",
+        "config_path": str(path),
+        "ready": readiness["ready"],
+        "problems": readiness["problems"],
+        "filter_warnings": filter_warnings(config),
+        "note": "If the web app is running, it may need a refresh/switch to reload this config.",
+    }, indent=2)
+
+
+@mcp.tool()
+def list_projects() -> str:
+    """List all review projects, marking the active one (read-only).
+
+    The active project decides which config.yaml every tool here reads and writes.
+    """
+    if not _PROJECTS_DIR.exists():
+        return json.dumps({"active": None, "projects": []})
+
+    active = _active_project_name()
+    projects = []
+    for entry in sorted(_PROJECTS_DIR.iterdir()):
+        if not entry.is_dir() or entry.name.startswith("."):
+            continue
+        display_name = entry.name
+        ready = False
+        cfg_path = entry / "config.yaml"
+        if cfg_path.exists():
+            try:
+                cfg = Config.load(cfg_path)
+                display_name = cfg.project_name
+                ready = cfg.readiness()["ready"]
+            except Exception:
+                pass
+        projects.append({
+            "name": entry.name,
+            "display_name": display_name,
+            "is_active": entry.name == active,
+            "ready": ready,
+        })
+    return json.dumps({"active": active, "projects": projects}, indent=2)
+
+
+@mcp.tool()
+def switch_project(name: str) -> str:
+    """Switch the active project (mirrors the web app's project switcher).
+
+    Args:
+        name: The project's slug — the 'name' field from list_projects().
+    """
+    config_path = _PROJECTS_DIR / name / "config.yaml"
+    if not config_path.exists():
+        return json.dumps({"error": f"Project '{name}' not found (no {config_path})."})
+
+    global _session_manager
+    _PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    (_PROJECTS_DIR / ".active_project").write_text(name, encoding="utf-8")
+    _session_manager = None  # new project → new state file; drop the cached manager
+
+    config = Config.load(config_path)
+    readiness = config.readiness()
+    return json.dumps({
+        "status": "switched",
+        "active": name,
+        "project": config.project_name,
+        "ready": readiness["ready"],
+        "problems": readiness["problems"],
+    }, indent=2)
+
+
+@mcp.tool()
+def create_project(name: str, switch: bool = True) -> str:
+    """Create a new review project from the config template.
+
+    Args:
+        name: Human-readable review title (a folder slug is derived from it).
+        switch: If true (default), make the new project active.
+    """
+    global _session_manager
+    slug = _slugify(name)
+    project_dir = _PROJECTS_DIR / slug
+    if project_dir.exists():
+        return json.dumps({"error": f"Project '{slug}' already exists."})
+
+    project_dir.mkdir(parents=True, exist_ok=True)
+    dest_config = project_dir / "config.yaml"
+    template = _ROOT / "config.template.yaml"
+
+    # Carry over API keys from the active project, if any.
+    active_api_keys: dict = {}
+    active = _active_project_name()
+    if active:
+        active_cfg = _PROJECTS_DIR / active / "config.yaml"
+        if active_cfg.exists():
+            try:
+                active_api_keys = _load_raw_config(active_cfg).get("api_keys", {}) or {}
+            except Exception:
+                pass
+
+    if template.exists():
+        shutil.copy2(template, dest_config)
+        cfg = _load_raw_config(dest_config)
+    else:
+        cfg = {
+            "project": {}, "api_keys": {"scopus": "", "openalex_email": ""},
+            "search": {"date_range": {"start": "2015-01-01", "end": "2026-12-31"},
+                       "max_results_per_query": 500, "sources": ["openalex"], "queries": []},
+            "dedup": {"doi_match": True, "fuzzy_title_threshold": 90},
+            "screening": {"rules": {"include_keywords": [], "exclude_keywords": [],
+                                    "min_include_hits": 2, "required_keywords": []}},
+        }
+    cfg.setdefault("project", {})
+    cfg["project"]["name"] = name
+    cfg["project"]["output_dir"] = "./prisma_output"
+    if active_api_keys:
+        cfg["api_keys"] = active_api_keys
+    _save_raw_config(dest_config, cfg)
+    (project_dir / "prisma_output").mkdir(exist_ok=True)
+
+    result = {"status": "created", "name": slug, "display_name": name}
+    if switch:
+        (_PROJECTS_DIR / ".active_project").write_text(slug, encoding="utf-8")
+        _session_manager = None
+        result["active"] = slug
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def rescreen(min_include_hits: int) -> str:
+    """Re-run keyword screening on the deduplicated papers with a new threshold.
+
+    Does NOT re-search or re-deduplicate — only re-applies the screening rules
+    with a different min_include_hits. Manual decisions are preserved. Mirrors
+    the web app's re-screen control.
+
+    Args:
+        min_include_hits: How many include keywords must match (1-10).
+    """
+    if not (1 <= min_include_hits <= 10):
+        return json.dumps({"error": "min_include_hits must be between 1 and 10."})
+
+    config = _get_config()
+    papers = load_papers(config.dedup_dir / "deduplicated.json")
+    if not papers:
+        return json.dumps({"error": "No deduplicated papers found. Run the pipeline first."})
+
+    # Reset rule-based decisions, preserve manual ones.
+    for p in papers:
+        if p.screen_method != "manual":
+            p.screen_decision = None
+            p.screen_reason = None
+            p.screen_method = None
+
+    papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords,
+                             min_include_hits, config.required_keywords)
+    included = get_by_decision(papers, "include")
+    excluded = get_by_decision(papers, "exclude")
+    maybe = get_by_decision(papers, "maybe")
+    excluded_no_required = count_excluded_by_required(excluded)
+
+    with _file_lock:
+        save_papers(papers, config.screen_dir / "screen_results.json")
+        save_papers(included, config.screen_dir / "included.json")
+        save_papers(excluded, config.screen_dir / "excluded.json")
+        save_papers(maybe, config.screen_dir / "maybe.json")
+
+        state = load_state(config.state_file)
+        state["screen"] = {
+            "total_screened": len(papers),
+            "included": len(included),
+            "excluded": len(excluded),
+            "maybe": len(maybe),
+            "excluded_no_required_keyword": excluded_no_required,
+        }
+        save_state(state, config.state_file)
+
+    return json.dumps({
+        "status": "ok",
+        "min_include_hits": min_include_hits,
+        "included": len(included),
+        "excluded": len(excluded),
+        "maybe": len(maybe),
+        "excluded_no_required_keyword": excluded_no_required,
+    }, indent=2)
+
+
 # ── Pipeline Session Management ─────────────────────────────────────
 
 
@@ -549,6 +960,11 @@ def start_pipeline() -> str:
     Use get_pipeline_progress() to monitor progress.
     """
     config = _get_config()
+
+    guard = _config_guard(config, "problems")
+    if guard is not None:
+        return guard
+
     session = _get_session_manager()
 
     if session.is_running:
@@ -593,6 +1009,15 @@ def start_pipeline_step(step: str) -> str:
         return json.dumps({"error": f"Unknown step: {step}. Must be 'search', 'dedup', or 'screen'."})
 
     config = _get_config()
+
+    # Guard only the steps that consume config content: search needs queries,
+    # screen needs include keywords; dedup operates on prior output only.
+    guard_scope = {"search": "search_problems", "screen": "screen_problems"}.get(step)
+    if guard_scope is not None:
+        guard = _config_guard(config, guard_scope)
+        if guard is not None:
+            return guard
+
     session = _get_session_manager()
 
     if session.is_running:

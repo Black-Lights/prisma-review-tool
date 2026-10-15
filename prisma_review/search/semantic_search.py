@@ -2,31 +2,41 @@
 
 from __future__ import annotations
 
-import re
 import time
 import requests
 from ..models import Paper
+from .query_plan import text_search_query
+from .filters import SearchFilters, build_semantic_params, apply_post_filters
+
+# Progress output must go to stderr: this module is imported by the stdio MCP
+# server, where stdout is the JSON-RPC channel and any stray byte corrupts it.
+import sys
+import functools
+print = functools.partial(print, file=sys.stderr)
 
 API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
-FIELDS = "title,abstract,authors,externalIds,year,venue,publicationTypes"
+FIELDS = "title,abstract,authors,externalIds,year,venue,publicationTypes,openAccessPdf"
 
 
 def _clean_query(query: str) -> str:
-    """Simplify boolean query for Semantic Scholar."""
-    phrases = re.findall(r'"([^"]+)"', query)
-    if phrases:
-        return " ".join(phrases[:5])
-    clean = re.sub(r'\b(AND|OR|NOT)\b', ' ', query)
-    clean = re.sub(r'[()"]', '', clean)
-    return ' '.join(clean.split())[:200]
+    """Reduce a Boolean query to Semantic Scholar's plain-text search string.
+
+    Delegates to the shared helper so the transparency warnings reported by
+    ``search.query_plan`` match exactly what is sent here.
+    """
+    return text_search_query(query)
 
 
 def search_semantic_scholar(query: str, date_start: str, date_end: str,
-                             max_results: int = 500) -> list[Paper]:
+                             max_results: int = 500,
+                             filters: SearchFilters | None = None) -> list[Paper]:
     """Search Semantic Scholar and return normalized Paper objects."""
     search_text = _clean_query(query)
     start_year = int(date_start[:4])
     end_year = int(date_end[:4])
+
+    # Request channel: supported facets as extra query params.
+    facet_params = build_semantic_params(filters) if filters else {}
 
     papers = []
     offset = 0
@@ -41,6 +51,7 @@ def search_semantic_scholar(query: str, date_start: str, date_end: str,
             "limit": min(batch_size, max_results - offset),
             "offset": offset,
             "fields": FIELDS,
+            **facet_params,
         }
 
         try:
@@ -75,6 +86,7 @@ def search_semantic_scholar(query: str, date_start: str, date_end: str,
                 authors = [a.get("name", "") for a in item.get("authors", []) if a.get("name")]
                 ext_ids = item.get("externalIds") or {}
                 doi = ext_ids.get("DOI")
+                pub_types = item.get("publicationTypes") or []
 
                 paper = Paper(
                     title=title.strip(),
@@ -87,6 +99,9 @@ def search_semantic_scholar(query: str, date_start: str, date_end: str,
                     keywords=[],
                     source="semantic_scholar",
                     source_id=item.get("paperId", ""),
+                    type=pub_types[0] if pub_types else None,
+                    is_oa=bool(item.get("openAccessPdf")),
+                    issn=(ext_ids.get("ISSN") or None),
                 )
                 papers.append(paper)
 
@@ -100,5 +115,9 @@ def search_semantic_scholar(query: str, date_start: str, date_end: str,
         except requests.exceptions.RequestException as e:
             print(f"  [!] Semantic Scholar request error: {e}")
             break
+
+    # Post-request safety net (e.g. require_abstract, which has no S2 param).
+    if filters:
+        papers = apply_post_filters(papers, filters, "semantic_scholar")
 
     return papers

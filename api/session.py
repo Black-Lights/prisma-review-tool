@@ -13,8 +13,10 @@ from typing import Literal
 from prisma_review.config import Config
 from prisma_review.models import load_papers, save_papers
 from prisma_review.search.runner import run_all_searches
+from prisma_review.search.query_plan import query_warnings
+from prisma_review.search.filters import filter_warnings
 from prisma_review.dedup import deduplicate, save_dedup_log
-from prisma_review.screen import screen_by_rules, get_by_decision
+from prisma_review.screen import screen_by_rules, get_by_decision, count_excluded_by_required
 from prisma_review.diagram import load_state, save_state
 
 
@@ -66,10 +68,17 @@ class SessionManager:
     def is_running(self) -> bool:
         return self.status == "running"
 
-    def get_progress(self) -> dict:
-        """Return a snapshot of the current progress — fast, no I/O."""
+    def get_progress(self, state_file: Path | None = None) -> dict:
+        """Return a snapshot of the current pipeline progress.
+
+        Reconciles in-memory state with ``review_state.json`` so a pipeline
+        driven by another process (notably the MCP server, which shares the
+        same state file) is visible here. The in-memory snapshot wins only
+        while *this* process owns a running pipeline; otherwise the disk state
+        wins when it reflects more recent activity.
+        """
         with self._lock:
-            return {
+            local = {
                 "session_id": self.session_id,
                 "status": self.status,
                 "current_step": self.current_step,
@@ -81,6 +90,46 @@ class SessionManager:
                 "error": self.error,
                 "result": self.result,
             }
+
+        # We own an active run — our memory is the freshest source.
+        if local["status"] == "running":
+            return local
+
+        disk = self._read_disk_progress(state_file or self._state_file)
+        if disk is None:
+            return local
+
+        # Prefer disk when it reflects a run at least as recent as ours
+        # (another process started/finished it after our last local activity).
+        local_started = local["started_at"]
+        disk_started = disk["started_at"]
+        if disk_started and (local_started is None or disk_started >= local_started):
+            return disk
+        return local
+
+    @staticmethod
+    def _read_disk_progress(state_file: Path | None) -> dict | None:
+        """Read the persisted ``pipeline`` block, shaped like get_progress()."""
+        if state_file is None:
+            return None
+        try:
+            ps = load_state(state_file).get("pipeline")
+        except Exception:
+            return None
+        if not ps or not isinstance(ps, dict):
+            return None
+        return {
+            "session_id": ps.get("session_id"),
+            "status": ps.get("status", "idle"),
+            "current_step": ps.get("current_step"),
+            "progress_message": ps.get("progress_message"),
+            "started_at": ps.get("started_at"),
+            "finished_at": ps.get("finished_at"),
+            "completed_steps": ps.get("completed_steps", []),
+            "warnings": ps.get("warnings", []),
+            "error": ps.get("error"),
+            "result": ps.get("result"),
+        }
 
     def request_cancel(self) -> bool:
         """Set the cancellation flag.  Returns False if nothing is running."""
@@ -263,6 +312,12 @@ class SessionManager:
     # -- Individual step implementations (mirror the sync endpoints) ------
 
     def _run_search(self, config: Config) -> dict:
+        # Per-source query transparency: report operators each source drops
+        # (OR/NOT/wildcards/extra phrases) before the search runs.
+        for w in list(query_warnings(config)) + list(filter_warnings(config)):
+            with self._lock:
+                self.warnings.append(w)
+
         # Run network calls WITHOUT holding the file lock (can take minutes)
         results = run_all_searches(config)
 
@@ -319,10 +374,12 @@ class SessionManager:
             raise RuntimeError("No papers found. Run dedup first.")
 
         # Run computation without lock, only lock for saves
-        papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords, config.min_include_hits)
+        papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords,
+                                 config.min_include_hits, config.required_keywords)
         included = get_by_decision(papers, "include")
         excluded = get_by_decision(papers, "exclude")
         maybe = get_by_decision(papers, "maybe")
+        excluded_no_required = count_excluded_by_required(excluded)
 
         with self._file_lock:
             save_papers(papers, config.screen_dir / "screen_results.json")
@@ -347,6 +404,7 @@ class SessionManager:
                 "included": len(included),
                 "excluded": len(excluded),
                 "maybe": len(maybe),
+                "excluded_no_required_keyword": excluded_no_required,
             }
             # Reset eligibility state since included papers changed
             state.pop("eligibility", None)

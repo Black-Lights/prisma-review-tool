@@ -10,16 +10,24 @@ import re
 import time
 import requests
 from ..models import Paper
+from .filters import SearchFilters, build_scopus_clause, apply_post_filters
+
+# Progress output must go to stderr: this module is imported by the stdio MCP
+# server, where stdout is the JSON-RPC channel and any stray byte corrupts it.
+import sys
+import functools
+print = functools.partial(print, file=sys.stderr)
 
 API_URL = "https://api.elsevier.com/content/search/scopus"
 PAGE_SIZE = 25  # Scopus default and max per request
 
 
-def _build_scopus_query(query: str, date_start: str, date_end: str) -> str:
+def _build_scopus_query(query: str, date_start: str, date_end: str,
+                        filters: SearchFilters | None = None) -> str:
     """Translate a Boolean query into Scopus search syntax.
 
     Wraps the user query with TITLE-ABS-KEY() for field-scoped search
-    and appends a PUBYEAR range filter.
+    and appends a PUBYEAR range filter plus any supported source-side facets.
     """
     # Extract the core query — strip outer whitespace/newlines
     q = " ".join(query.split())
@@ -33,6 +41,10 @@ def _build_scopus_query(query: str, date_start: str, date_end: str) -> str:
     end_year = int(date_end[:4])
     q += f" AND PUBYEAR > {start_year - 1} AND PUBYEAR < {end_year + 1}"
 
+    # Request channel: DOCTYPE / OPENACCESS / ISSN|SRCTITLE clauses.
+    if filters:
+        q += build_scopus_clause(filters)
+
     return q
 
 
@@ -42,6 +54,7 @@ def search_scopus(
     date_start: str,
     date_end: str,
     max_results: int = 500,
+    filters: SearchFilters | None = None,
 ) -> list[Paper]:
     """Search Scopus and return normalized Paper objects.
 
@@ -59,7 +72,7 @@ def search_scopus(
         print("  [!] No Scopus API key configured, skipping")
         return []
 
-    scopus_query = _build_scopus_query(query, date_start, date_end)
+    scopus_query = _build_scopus_query(query, date_start, date_end, filters)
 
     headers = {
         "X-ELS-APIKey": api_key,
@@ -168,6 +181,7 @@ def search_scopus(
                 if authkeywords and isinstance(authkeywords, str):
                     keywords = [k.strip() for k in authkeywords.split("|") if k.strip()]
 
+                oa_flag = item.get("openaccessFlag")
                 paper = Paper(
                     title=title.strip(),
                     authors=authors,
@@ -179,6 +193,9 @@ def search_scopus(
                     keywords=keywords,
                     source="scopus",
                     source_id=scopus_id.replace("SCOPUS_ID:", "") if scopus_id else eid,
+                    type=item.get("subtype"),
+                    is_oa=(bool(oa_flag) if oa_flag is not None else None),
+                    issn=item.get("prism:issn"),
                 )
                 papers.append(paper)
 
@@ -194,5 +211,9 @@ def search_scopus(
         except requests.exceptions.RequestException as e:
             print(f"  [!] Scopus request error: {e}")
             break
+
+    # Post-request safety net (e.g. require_abstract under STANDARD view).
+    if filters:
+        papers = apply_post_filters(papers, filters, "scopus")
 
     return papers
