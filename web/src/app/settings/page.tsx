@@ -55,7 +55,7 @@ const SOURCE_INFO: Record<string, { label: string; note: string; reliable: boole
   arxiv: { label: "arXiv", note: "Rate-limits aggressively, may return partial results", reliable: false },
   crossref: { label: "Crossref", note: "150M+ records, free, no API key", reliable: true },
   openalex: { label: "OpenAlex", note: "250M+ papers; a free API key is strongly recommended", reliable: true },
-  semantic_scholar: { label: "Semantic Scholar", note: "Heavy rate limits, often returns 0 results", reliable: false },
+  semantic_scholar: { label: "Semantic Scholar", note: "Boolean search, but heavy rate limits; a query that stops early is reported", reliable: false },
   scopus: { label: "Scopus", note: "Requires API key", reliable: true },
 };
 
@@ -641,8 +641,8 @@ function SettingsForm({
             <p className="font-semibold text-text-primary">How filters are applied</p>
             <ul className="text-text-secondary space-y-1.5 list-none">
               <li><span className="text-accent-green font-semibold">Server-side</span>: applied at the request when the source supports the facet (e.g. OpenAlex/Crossref document type, OpenAlex/Scopus open access).</li>
-              <li><span className="text-accent-amber font-semibold">Locally</span>: re-checked after fetch when the source has no such facet (e.g. open access on Crossref, abstract on Semantic Scholar).</li>
-              <li><span className="text-accent-red font-semibold">Ignored</span>: when a source can&apos;t express it at all (e.g. document types / venues on arXiv).</li>
+              <li><span className="text-accent-amber font-semibold">Locally</span>: applied after the fetch when the source has no such facet (e.g. abstract on Semantic Scholar, Scopus and arXiv).</li>
+              <li><span className="text-accent-red font-semibold">Ignored</span>: when a source can&apos;t evaluate it at all (e.g. open access on Crossref, document types / venues on arXiv).</li>
             </ul>
             <p className="text-text-muted pt-1 border-t border-border-glass">Empty / off everywhere = no filtering (default). Run a search to see the per-source warnings.</p>
           </InfoTip>

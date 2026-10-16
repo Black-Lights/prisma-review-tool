@@ -58,6 +58,8 @@ required_keywords:
 
 Write each term as a list item; a single string is treated as one term.
 
+A required term must appear as a whole word or phrase: case, HTML markup, hyphens and extra spaces are ignored and a plural `s`/`es` is accepted, so `large language model` matches `Large-Language Models`, but `RAG` does not match `storage`. List other word forms separately (`optimise`, `optimize`). A paper with no abstract whose title has none of the terms is left as "maybe" for review instead of being excluded. Include and exclude keywords still match anywhere in the text.
+
 ### Tuning
 
 - Start with `min_include_hits: 2`; if too many papers pass, increase to 3
