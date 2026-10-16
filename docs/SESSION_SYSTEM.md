@@ -101,6 +101,12 @@ Both the FastAPI routes and MCP tools access the same `SessionManager` singleton
 
 When both run in the same process (e.g., the API server), they share the exact same instance. When the MCP server runs as a separate process (stdio transport), they share state via `review_state.json` on disk.
 
+Both processes pick the same project (`PRISMA_CONFIG`, else `projects/.active_project`, else the root `config.yaml`; see [CONFIG_GUIDE.md](CONFIG_GUIDE.md#projects-and-environment-variables)) through `prisma_review/workspace.py`, and write the shared files through `prisma_review/storage.py`:
+
+- every write goes to a temp file in the same folder that then replaces the target in one step (`os.replace`), so a reader in the other process never sees a half-written file;
+- a read-modify-write holds `project_lock(output_dir)`, which excludes other threads and other processes (through a `.prisma.lock` file in the folder) and is reentrant within a thread;
+- `update_state(state_file, fn)` does lock, load, change and atomic write for `review_state.json` in one call.
+
 ## Rate Limit Handling
 
 The search step calls `run_all_searches()` which catches per-source exceptions and returns empty results for failed sources. After search completes, the session checks for zero-result sources and adds warnings:

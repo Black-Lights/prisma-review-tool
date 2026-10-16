@@ -1,4 +1,4 @@
-"""Project management endpoints — list, create, switch, delete, duplicate, export, import.
+"""Project management endpoints: list, create, switch, delete, duplicate, export, import.
 
 Every ``{name}`` is validated as a project folder slug inside projects/ before
 it touches the disk: on Windows an encoded backslash (``..%5C..%5CUsers``)

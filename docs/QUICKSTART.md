@@ -22,6 +22,7 @@ Open `config.yaml` and change:
 - **project.name**: Your review title
 - **search.queries**: Your search terms (use Boolean AND/OR)
 - **screening.rules**: Your include/exclude keywords
+- **api_keys.openalex_key**: A free OpenAlex API key (without it each OpenAlex query stops at 50 results; see [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys))
 
 ## 3. Run
 
@@ -36,9 +37,9 @@ python -m prisma_review status
 ```
 
 Your outputs are in `prisma_output/04_export/`:
-- `included_papers.bib` — Import into Zotero or use in LaTeX
-- `included_papers.csv` — Open in Excel
-- `prisma_flow.png` — [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) flow diagram
+- `included_papers.bib`: Import into Zotero or use in LaTeX
+- `included_papers.csv`: Open in Excel
+- `prisma_flow.png`: [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) flow diagram
 
 ## 5. (Optional) AI Screening
 

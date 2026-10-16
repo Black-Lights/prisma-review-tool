@@ -1,4 +1,4 @@
-# MCP Setup Guide — AI Screening with Any MCP-Compatible Agent
+# MCP Setup Guide: AI Screening with Any MCP-Compatible Agent
 
 ## What is MCP?
 
@@ -47,25 +47,42 @@ The config format:
 
 > **Windows users**: Use `.venv/Scripts/python.exe` instead of `.venv/bin/python`. Use forward slashes in paths.
 
+To tie the agent to one review no matter which project the web app has active, add an `env` block with `PRISMA_CONFIG` (see [Which review the server works on](#which-review-the-server-works-on)):
+
+```json
+{
+  "mcpServers": {
+    "prisma-review": {
+      "command": "<path-to-prisma_tool>/.venv/bin/python",
+      "args": ["run_mcp.py"],
+      "cwd": "<path-to-prisma_tool>",
+      "env": { "PRISMA_CONFIG": "<path-to-prisma_tool>/projects/<project-name>/config.yaml" }
+    }
+  }
+}
+```
+
 ### Agent-Specific Setup
 
-**Claude Code** — Copy to project root as `.mcp.json` or add to `~/.claude/settings.json`
+**Claude Code**: Copy to project root as `.mcp.json` or add to `~/.claude/settings.json`
 
-**OpenAI Codex CLI** — Add to `~/.codex/config.toml`:
+**OpenAI Codex CLI**: Add to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.prisma-review]
 command = "<path-to-prisma_tool>/.venv/bin/python"
 args = ["run_mcp.py"]
 cwd = "<path-to-prisma_tool>"
+# Optional: pin one review
+# env = { PRISMA_CONFIG = "<path-to-prisma_tool>/projects/<project-name>/config.yaml" }
 ```
 
-**GitHub Copilot / VS Code** — Add to `.vscode/mcp.json` in your workspace
+**GitHub Copilot / VS Code**: Add to `.vscode/mcp.json` in your workspace
 
-**Cursor** — Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project)
+**Cursor**: Add to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` (project)
 
-**Windsurf** — Add to `~/.codeium/windsurf/mcp_config.json`
+**Windsurf**: Add to `~/.codeium/windsurf/mcp_config.json`
 
-**Amazon Q** — Add to `~/.aws/amazonq/mcp.json`
+**Amazon Q**: Add to `~/.aws/amazonq/mcp.json`
 
 ### 2. Restart Your Agent
 
@@ -73,11 +90,42 @@ After adding the config, restart the agent. The MCP server starts automatically 
 
 ### 3. Verify
 
-Ask your AI agent: "Use the prisma-review tools to check screening stats."
+Ask your AI agent: "Use the prisma-review tools to show the review config."
 
-The agent should call `get_screening_stats` and show you the current pipeline state.
+The agent should call `get_review_config` and show you which project and config file the server uses, whether the config is ready, and any warnings.
+
+## Which review the server works on
+
+Every tool acts on one review project. The server picks its `config.yaml` in this order:
+
+1. **`PRISMA_CONFIG`** environment variable: a path to a config file (absolute, or relative to the server's working directory). Set it in the agent's MCP config to pin one review.
+2. **The active project**: `projects/.active_project` names a folder in `projects/`. This is the same marker the web app's project switcher writes, so without a pin the agent follows the project you select in the web app.
+3. **The root `config.yaml`**: only when there is no `projects/.active_project` at all (an install that never created a project).
+
+If `projects/.active_project` names a project that does not exist (or is not a valid project folder name), every tool returns an error saying so instead of quietly using another config. Fix it with `list_projects` and `switch_project`, or in the web app's Projects page.
+
+What the server does to make this visible:
+
+- At startup it writes one line to stderr with the tool version, the project and the config path (plus warnings such as a missing OpenAlex key). Your agent's MCP log shows it.
+- Every tool that changes something returns `project`, `project_name` and `config_path`, so you can see which review was touched.
+- `switch_project` and `create_project` (with `switch=true`) are refused while a pipeline is running in the server, and while `PRISMA_CONFIG` pins the config.
+- `create_project` on an install that only has a root `config.yaml` first copies that review into `projects/` so it stays reachable.
+
+Advanced: `PRISMA_WORKSPACE` points the tool at a different folder holding `config.yaml` and `projects/` (default: the install folder).
 
 ## Available MCP Tools
+
+Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a crash.
+
+### Configuration and Projects
+
+| Tool | What it does |
+|------|--------------|
+| `get_review_config` | Shows the project, config path, how it was chosen, queries, screening rules, filters, `ready`/`problems`, `warnings`, and per-source `query_warnings` and `filter_warnings`. Call this first. |
+| `set_review_config` | Changes only the fields you pass (sources, dates, queries, keywords, filters). Validates everything first and writes nothing if a value is invalid. `queries` is a list of `{"name", "terms"}` objects. |
+| `list_projects` | Lists projects, the active one, and `pinned_config` if `PRISMA_CONFIG` is set |
+| `switch_project` | Makes another project active (same as the web app's switcher) |
+| `create_project` | Creates a project from the template (API keys carried over) and, by default, switches to it |
 
 ### First-Pass Screening (keyword rules + AI review of "maybe" papers)
 
@@ -87,8 +135,9 @@ The agent should call `get_screening_stats` and show you the current pipeline st
 | `get_papers_to_screen` | Returns a batch of "maybe" papers with titles and abstracts |
 | `get_paper_details` | Full details of a specific paper |
 | `screen_paper` | Save a decision for one paper |
-| `batch_screen_papers` | Save decisions for multiple papers at once |
+| `batch_screen_papers` | Save decisions for multiple papers at once (a list of `{"paper_id", "decision", "reason"}`) |
 | `search_in_papers` | Search within collected papers by keyword |
+| `rescreen` | Re-apply the keyword rules with a different `min_include_hits` (no new search) |
 
 ### Second-Pass Eligibility Screening (stricter AI-assisted review)
 
@@ -109,16 +158,22 @@ The agent should call `get_screening_stats` and show you the current pipeline st
 
 | Tool | What it does |
 |------|--------------|
-| `start_pipeline` | Start full pipeline in background (search → dedup → screen) |
+| `start_pipeline` | Start full pipeline in background (search, dedup, screen). Replaces the project's earlier results. |
 | `get_pipeline_progress` | Check pipeline status, current step, and warnings |
 | `stop_pipeline` | Cancel running pipeline (stops after current step) |
 | `start_pipeline_step` | Run a single step (search, dedup, or screen) in background |
+
+### Queries and sources
+
+OpenAlex, Scopus and arXiv run your Boolean query (`AND`/`OR`/`NOT`, quoted phrases, parentheses). Crossref and Semantic Scholar only search with the quoted phrases, so they lose the Boolean structure; `get_review_config` lists what each source drops under `query_warnings`. Avoid `*` wildcards.
+
+OpenAlex needs a free API key to return more than the first page of results: without `api_keys.openalex_key` every OpenAlex query stops at 50 records. `get_review_config` and `start_pipeline` warn when the key is missing. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys).
 
 ## Two-Pass Screening Workflow
 
 ### Why two passes?
 
-Broad search queries often return hundreds of "included" papers after the first keyword screening — too many for a focused review. The second pass applies stricter, topic-specific criteria using AI.
+Broad search queries often return hundreds of "included" papers after the first keyword screening, which is too many for a focused review. The second pass applies stricter, topic-specific criteria using AI.
 
 ### How it works
 
@@ -131,19 +186,26 @@ Broad search queries often return hundreds of "included" papers after the first 
 ### Step-by-step
 
 ```
-1. Run CLI pipeline:           python -m prisma_review run-all
-2. Ask Claude to screen:       "Screen my 'maybe' papers about [topic]"
-3. Ask Claude for eligibility:  "Do eligibility screening on included papers.
+1. Check the setup:            "Show me the review config"   (get_review_config)
+2. Run the pipeline:           "Start the pipeline"          (or: python -m prisma_review run-all)
+3. Ask Claude to screen:       "Screen my 'maybe' papers about [topic]"
+4. Ask Claude for eligibility:  "Do eligibility screening on included papers.
                                  Only include papers directly about [specific criteria]."
-4. Generate final report:       "Generate the PRISMA report"
+5. Generate final report:       "Generate the PRISMA report"
 ```
 
 ## Troubleshooting
 
 **MCP server not found**: Check that the paths in your `.mcp.json` are correct and use forward slashes.
 
-**Config file not found**: The MCP server looks for `config.yaml` relative to the `prisma_tool` directory. Make sure you've run `cp config.template.yaml config.yaml`.
+**"... names 'x', which ..." or "The active project 'x' ... has no config.yaml"**: `projects/.active_project` points to a project that no longer exists. Call `list_projects` and `switch_project`, or pick a project in the web app.
 
-**No papers to screen**: Make sure you ran `python -m prisma_review screen-rules` first. The MCP server reads from the output files.
+**"No active project and no config.yaml"**: Create a project (`create_project`, or the web app's Projects page) or, for CLI-only use, run `cp config.template.yaml config.yaml`.
+
+**"PRISMA_CONFIG points to ..., which does not exist"**: Fix the path in the agent's MCP config, or remove `PRISMA_CONFIG` to follow the active project.
+
+**Each OpenAlex query returns at most 50 papers**: add `api_keys.openalex_key` (see above).
+
+**No papers to screen**: Make sure the pipeline (or `python -m prisma_review screen-rules`) ran first. The MCP server reads from the output files.
 
 **Permission errors**: Make sure the venv Python path is correct and the `.venv` exists.
