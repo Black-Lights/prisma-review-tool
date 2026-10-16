@@ -109,13 +109,17 @@ Both processes pick the same project (`PRISMA_CONFIG`, else `projects/.active_pr
 
 ## Rate Limit Handling
 
-The search step calls `run_all_searches()` which catches per-source exceptions and returns empty results for failed sources. After search completes, the session checks for zero-result sources and adds warnings:
+The search step calls `run_all_searches(config, status_log=..., should_cancel=...)`. Each backend retries HTTP 429, 5xx answers and network errors a bounded number of times with increasing waits (honouring a short `Retry-After`), then reports one entry per query and source in `status_log`:
 
-```
-semantic_scholar: returned 0 results (possible rate limiting or API error)
+```json
+{"source": "openalex", "query": "main", "query_index": 0, "status": "partial",
+ "error": "OpenAlex HTTP 429 on page 4: ...", "api_total": 1830, "retrieved": 300,
+ "after_post_filter": 300, "executed": "\"crop yield\" AND prediction"}
 ```
 
-Warnings are included in the progress response and displayed in the web UI. The pipeline does NOT fail — it continues with partial results.
+`status` is `ok`, `partial` (records came back, then the source stopped), `failed`, `skipped` (no Scopus key, unknown source) or `cancelled`. Every entry other than `ok` becomes a pipeline warning, shown in the progress response and the web UI. The pipeline does not fail: it continues with what was retrieved, and the warning says which query and source are incomplete. The same entries, with the request sent, the fields searched and the filter modes, are written to `01_search/search_log.json`.
+
+`should_cancel` is polled between result pages and during retry waits, so a stop request ends the search step within about a second instead of after the whole step.
 
 ## Cancellation Flow
 

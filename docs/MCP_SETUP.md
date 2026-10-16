@@ -165,9 +165,11 @@ Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a cr
 
 ### Queries and sources
 
-OpenAlex, Scopus and arXiv run your Boolean query (`AND`/`OR`/`NOT`, quoted phrases, parentheses). Crossref and Semantic Scholar only search with the quoted phrases, so they lose the Boolean structure; `get_review_config` lists what each source drops under `query_warnings`. Avoid `*` wildcards.
+OpenAlex, Scopus, Semantic Scholar and arXiv run your Boolean query (`AND`/`OR`/`NOT` in capitals, quoted phrases, parentheses). OpenAlex and Scopus search title, abstract and keywords; Semantic Scholar title and abstract. Crossref has no Boolean search: it ranks plain terms by relevance and cannot exclude `NOT` terms. `get_review_config` lists what each source loses under `query_warnings`; see the table in [CONFIG_GUIDE.md](CONFIG_GUIDE.md#sources).
 
-OpenAlex needs a free API key to return more than the first page of results: without `api_keys.openalex_key` every OpenAlex query stops at 50 records. `get_review_config` and `start_pipeline` warn when the key is missing. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys).
+Each query and source reports its outcome (`ok`, `partial`, `failed`, `skipped`, `cancelled`); `get_pipeline_progress` shows anything other than `ok` as a warning, so a search that stopped early is never mistaken for a small result. The exact searches run are saved in `01_search/search_log.json` for your methods section (PRISMA 2020 item 7).
+
+A free OpenAlex key (`api_keys.openalex_key`) raises OpenAlex's daily request budget 10 times and is needed to page past 10,000 results per query. `get_review_config` and `start_pipeline` warn when the key is missing. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys).
 
 ## Two-Pass Screening Workflow
 
@@ -204,7 +206,9 @@ Broad search queries often return hundreds of "included" papers after the first 
 
 **"PRISMA_CONFIG points to ..., which does not exist"**: Fix the path in the agent's MCP config, or remove `PRISMA_CONFIG` to follow the active project.
 
-**Each OpenAlex query returns at most 50 papers**: add `api_keys.openalex_key` (see above).
+**An OpenAlex query is reported as `partial`**: OpenAlex stopped answering before all pages were fetched, usually because the daily budget ran out (HTTP 429). Add `api_keys.openalex_key` (see above) and run the search again. The warning names the reason.
+
+**A source is reported as `failed`**: the warning carries the API's error message. Rate limits and server errors were already retried; try again later, or check the key named in the message.
 
 **No papers to screen**: Make sure the pipeline (or `python -m prisma_review screen-rules`) ran first. The MCP server reads from the output files.
 

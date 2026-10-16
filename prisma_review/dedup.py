@@ -6,12 +6,14 @@ import csv
 from collections import defaultdict
 from pathlib import Path
 
-from rapidfuzz import fuzz
+import numpy as np
+from rapidfuzz import fuzz, process
 
 from .models import Paper
 
 
-# Prefer sources with more complete metadata
+# Tie-break between equally complete records: prefer sources with cleaner
+# bibliographic metadata. Completeness always comes first (see _pick_canonical).
 SOURCE_PRIORITY = {
     "crossref": 0,
     "scopus": 1,
@@ -20,17 +22,74 @@ SOURCE_PRIORITY = {
     "arxiv": 4,
 }
 
+# Titles at or above this score are compared by first author too (borderline).
+_BORDERLINE_SCORE = 85
+# Rows of the title score matrix computed at once (bounds memory on big years).
+_CHUNK_ROWS = 1000
+
 
 def _pick_canonical(papers: list[Paper]) -> Paper:
-    """Pick the paper with the most complete metadata as canonical."""
+    """Pick the record to keep: the most complete one, source priority as tie-break.
+
+    An abstract matters most (keyword rules and AI screening read it), then a
+    DOI (dedup, download), then authors.
+    """
     def score(p: Paper) -> tuple:
         return (
-            -SOURCE_PRIORITY.get(p.source, 99),
-            len(p.abstract),
-            len(p.authors),
+            1 if (p.abstract or "").strip() else 0,
             1 if p.doi else 0,
+            1 if p.authors else 0,
+            -SOURCE_PRIORITY.get(p.source, 99),
+            len(p.abstract or ""),
+            len(p.authors),
         )
     return max(papers, key=score)
+
+
+def _sources_of(p: Paper) -> list[str]:
+    return p.found_in_sources or ([p.source] if p.source else [])
+
+
+def _absorb(canonical: Paper, group: list[Paper]) -> None:
+    """Merge the provenance of ``group`` into ``canonical`` and fill its empty fields.
+
+    Provenance (query names, sources, per-source ids) is the union over the
+    group. Bibliographic fields the canonical lacks are taken from the first
+    duplicate that has them, so the kept record loses nothing a duplicate knew.
+    """
+    others = [p for p in group if p is not canonical]
+    canonical.matched_queries = sorted({q for g in group for q in g.matched_queries})
+    canonical.found_in_sources = sorted({s for g in group for s in _sources_of(g)})
+    ids: dict[str, str] = {}
+    for g in [canonical] + others:
+        if g.source and g.source_id:
+            ids.setdefault(g.source, g.source_id)
+        for src, sid in (g.source_ids or {}).items():
+            ids.setdefault(src, sid)
+    canonical.source_ids = ids
+
+    for p in others:
+        if not (canonical.abstract or "").strip() and (p.abstract or "").strip():
+            canonical.abstract = p.abstract
+        if not canonical.doi and p.doi:
+            canonical.doi = p.doi
+        if not canonical.authors and p.authors:
+            canonical.authors = list(p.authors)
+        if not canonical.year and p.year:
+            canonical.year = p.year
+        if not canonical.venue and p.venue:
+            canonical.venue = p.venue
+        if not canonical.url and p.url:
+            canonical.url = p.url
+        if not canonical.keywords and p.keywords:
+            canonical.keywords = list(p.keywords)
+        if not canonical.type and p.type:
+            canonical.type = p.type
+        if not canonical.issn and p.issn:
+            canonical.issn = p.issn
+    known_oa = [p.is_oa for p in [canonical] + others if p.is_oa is not None]
+    if known_oa:
+        canonical.is_oa = any(known_oa)
 
 
 def _first_author_last(paper: Paper) -> str:
@@ -41,12 +100,72 @@ def _first_author_last(paper: Paper) -> str:
     return parts[-1].lower() if parts else ""
 
 
+def _title_clusters(bucket: list[Paper], fuzzy_threshold: int) -> list[list[int]]:
+    """Group indices of ``bucket`` whose titles match, as connected components.
+
+    A pair matches when ``token_sort_ratio`` of the lowercased titles reaches
+    ``fuzzy_threshold``, or reaches the borderline score and the first
+    authors' last names agree. Union-find makes the result independent of the
+    order of the records, and every member of a cluster ends up merged into
+    one canonical record.
+    """
+    n = len(bucket)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    titles = [p.title.lower() for p in bucket]
+    cutoff = min(fuzzy_threshold, _BORDERLINE_SCORE)
+    for start in range(0, n, _CHUNK_ROWS):
+        rows = titles[start:start + _CHUNK_ROWS]
+        scores = process.cdist(rows, titles, scorer=fuzz.token_sort_ratio,
+                               score_cutoff=cutoff, dtype=np.float32, workers=-1)
+        for r, j in zip(*scores.nonzero()):
+            i = start + int(r)
+            j = int(j)
+            if j <= i:
+                continue
+            score = float(scores[r, j])
+            if score >= fuzzy_threshold:
+                is_dup = True
+            elif score >= _BORDERLINE_SCORE:
+                a1 = _first_author_last(bucket[i])
+                a2 = _first_author_last(bucket[j])
+                is_dup = bool(a1 and a2 and a1 == a2)
+            else:
+                is_dup = False
+            if is_dup:
+                ri, rj = find(i), find(j)
+                if ri != rj:
+                    parent[rj] = ri
+
+    clusters: dict[int, list[int]] = defaultdict(list)
+    for i in range(n):
+        clusters[find(i)].append(i)
+    return [members for members in clusters.values() if len(members) > 1]
+
+
 def deduplicate(papers: list[Paper], doi_match: bool = True,
                 fuzzy_threshold: int = 90) -> tuple[list[Paper], list[dict]]:
     """Remove duplicates. Returns (unique_papers, duplicate_log)."""
     duplicate_log: list[dict] = []
-    canonical_map: dict[str, Paper] = {}  # id -> canonical paper
     removed: set[str] = set()
+    by_id = {p.id: p for p in papers}
+
+    def log_duplicate(dup: Paper, canonical: Paper, method: str, score: float) -> None:
+        duplicate_log.append({
+            "duplicate_id": dup.id,
+            "duplicate_title": dup.title[:80],
+            "duplicate_source": dup.source,
+            "canonical_id": canonical.id,
+            "canonical_title": canonical.title[:80],
+            "match_method": method,
+            "score": score,
+        })
 
     # Pass 1: DOI exact match
     if doi_match:
@@ -59,73 +178,49 @@ def deduplicate(papers: list[Paper], doi_match: bool = True,
         for doi, group in doi_groups.items():
             if len(group) > 1:
                 canonical = _pick_canonical(group)
-                # Canonical absorbs the query provenance of the whole group.
-                canonical.matched_queries = sorted({
-                    q for g in group for q in g.matched_queries
-                })
+                _absorb(canonical, group)
                 for p in group:
-                    if p.id != canonical.id:
+                    if p is not canonical:
                         p.duplicate_of = canonical.id
                         removed.add(p.id)
-                        duplicate_log.append({
-                            "duplicate_id": p.id,
-                            "duplicate_title": p.title[:80],
-                            "duplicate_source": p.source,
-                            "canonical_id": canonical.id,
-                            "canonical_title": canonical.title[:80],
-                            "match_method": "doi",
-                            "score": 100,
-                        })
+                        log_duplicate(p, canonical, "doi", 100)
 
-    # Pass 2: Fuzzy title matching for remaining papers
+    # Pass 2: Fuzzy title matching for remaining papers, bucketed by year to
+    # reduce comparisons.
     remaining = [p for p in papers if p.id not in removed]
-
-    # Bucket by year to reduce comparisons
     year_buckets: dict[int, list[Paper]] = defaultdict(list)
     for p in remaining:
         year_buckets[p.year].append(p)
 
     for year, bucket in year_buckets.items():
-        n = len(bucket)
-        for i in range(n):
-            if bucket[i].id in removed:
-                continue
-            for j in range(i + 1, n):
-                if bucket[j].id in removed:
-                    continue
+        for members in _title_clusters(bucket, fuzzy_threshold):
+            group = [bucket[i] for i in members]
+            canonical = _pick_canonical(group)
+            _absorb(canonical, group)
+            for p in group:
+                if p is not canonical:
+                    p.duplicate_of = canonical.id
+                    removed.add(p.id)
+                    score = round(fuzz.token_sort_ratio(p.title.lower(), canonical.title.lower()), 1)
+                    log_duplicate(p, canonical, "fuzzy_title", score)
 
-                score = fuzz.token_sort_ratio(
-                    bucket[i].title.lower(),
-                    bucket[j].title.lower()
-                )
+    # A DOI duplicate whose canonical was then merged by title points at a
+    # removed record: follow the chain to the record that was kept.
+    def final(pid: str) -> str:
+        seen = set()
+        while pid in by_id and by_id[pid].duplicate_of and pid not in seen:
+            seen.add(pid)
+            pid = by_id[pid].duplicate_of
+        return pid
 
-                if score >= fuzzy_threshold:
-                    is_dup = True
-                elif score >= 85:
-                    # Borderline: also check first author
-                    a1 = _first_author_last(bucket[i])
-                    a2 = _first_author_last(bucket[j])
-                    is_dup = a1 and a2 and a1 == a2
-                else:
-                    is_dup = False
-
-                if is_dup:
-                    canonical = _pick_canonical([bucket[i], bucket[j]])
-                    dup = bucket[j] if canonical.id == bucket[i].id else bucket[i]
-                    dup.duplicate_of = canonical.id
-                    canonical.matched_queries = sorted(
-                        set(canonical.matched_queries) | set(dup.matched_queries)
-                    )
-                    removed.add(dup.id)
-                    duplicate_log.append({
-                        "duplicate_id": dup.id,
-                        "duplicate_title": dup.title[:80],
-                        "duplicate_source": dup.source,
-                        "canonical_id": canonical.id,
-                        "canonical_title": canonical.title[:80],
-                        "match_method": "fuzzy_title",
-                        "score": score,
-                    })
+    for p in papers:
+        if p.duplicate_of:
+            p.duplicate_of = final(p.duplicate_of)
+    for entry in duplicate_log:
+        target = final(entry["canonical_id"])
+        if target != entry["canonical_id"] and target in by_id:
+            entry["canonical_id"] = target
+            entry["canonical_title"] = by_id[target].title[:80]
 
     unique = [p for p in papers if p.id not in removed]
     return unique, duplicate_log

@@ -8,7 +8,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 
 ## Features
 
-- **Multi-database search**: arXiv, Crossref, OpenAlex, Semantic Scholar (free, no API keys needed). Optional: Scopus.
+- **Multi-database search**: OpenAlex, arXiv, Semantic Scholar and Crossref (free; a free OpenAlex key is recommended). Optional: Scopus. Each search is logged as executed (`01_search/search_log.json`), and a source that stops early is reported, not hidden.
 - **Automatic deduplication**: DOI matching + fuzzy title matching
 - **Two-pass screening**:
   - **Pass 1**: Rule-based keyword screening (automated, re-screenable with adjustable threshold)
@@ -280,9 +280,10 @@ If you use this tool in your research, please cite:
 
 - Python 3.10+
 - Node.js 18+ (for the web app; not needed for CLI-only usage)
-- No API keys needed for basic usage (OpenAlex is free and recommended)
+- A free OpenAlex API key is recommended ([openalex.org/settings/api](https://openalex.org/settings/api)): it raises the daily request budget 10 times. The tool works without one.
 - Optional: Scopus API key for broader coverage (get from [dev.elsevier.com](https://dev.elsevier.com), requires institutional access)
-- Optional: arXiv and Semantic Scholar (free but have aggressive rate limits)
+- Optional: arXiv and Semantic Scholar (free but rate-limited; requests are retried and a source that stops early is reported)
+- Optional: Crossref (free, but relevance-ranked rather than Boolean, so it is off by default)
 - Optional: Claude Code subscription for AI-assisted screening via MCP
 
 ## Contributing

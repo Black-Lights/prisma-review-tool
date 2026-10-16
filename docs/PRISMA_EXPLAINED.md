@@ -13,7 +13,7 @@
 | PRISMA Step | What You Do | Tool Command |
 |-------------|-------------|--------------|
 | Define search queries | Write `config.yaml` | — |
-| Search databases (Item 6-7) | Tool searches arXiv, OpenAlex, etc. | `search` |
+| Search databases (Item 6-7) | Tool searches arXiv, OpenAlex, etc. and records each search as executed in `01_search/search_log.json` | `search` |
 | Remove duplicates (Item 9) | Tool matches DOIs + fuzzy titles | `dedup` |
 | Screen by title/abstract (Item 8) | Keyword rules + AI via MCP | `screen-rules` + MCP |
 | Eligibility assessment (Item 8) | AI applies stricter criteria | MCP eligibility tools |

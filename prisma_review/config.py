@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from .search.query_plan import date_range
 from .storage import atomic_write_yaml, read_text
 
 # Search sources the runner knows. Configs may list them in any case.
@@ -25,10 +26,11 @@ KNOWN_DOCUMENT_TYPES = ("journal-article", "review", "conference-paper", "book-c
 PUBLIC_API_KEY_FIELDS = ("openalex_email",)
 
 OPENALEX_KEY_WARNING = (
-    "OpenAlex is enabled but api_keys.openalex_key is empty. OpenAlex now requires a "
-    "free API key to page past the first page of results, so without one every query "
-    "stops at 50 records. Create a free account at https://openalex.org and add its "
-    "API key under api_keys.openalex_key."
+    "OpenAlex is enabled but api_keys.openalex_key is empty. Without a free key OpenAlex "
+    "gives a 10 times smaller daily request budget, so a large search can be cut short "
+    "(the query is then reported as partial), and it cannot page past 10,000 results per "
+    "query. Create a free key at https://openalex.org/settings/api and add it under "
+    "api_keys.openalex_key."
 )
 
 
@@ -359,6 +361,10 @@ class Config:
             search_problems.append(
                 "search.sources is empty: enable at least one source (e.g. openalex)."
             )
+        try:
+            date_range(self.date_start, self.date_end)
+        except ValueError as exc:
+            search_problems.append(f"search.date_range is not valid: {exc}.")
         unknown = [s for s in self.sources if s not in KNOWN_SOURCES]
         if unknown:
             warnings.append(

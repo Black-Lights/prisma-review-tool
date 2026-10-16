@@ -22,7 +22,7 @@ Open `config.yaml` and change:
 - **project.name**: Your review title
 - **search.queries**: Your search terms (use Boolean AND/OR)
 - **screening.rules**: Your include/exclude keywords
-- **api_keys.openalex_key**: A free OpenAlex API key (without it each OpenAlex query stops at 50 results; see [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys))
+- **api_keys.openalex_key**: A free OpenAlex API key (recommended: it raises OpenAlex's daily request budget 10 times; see [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys))
 
 ## 3. Run
 

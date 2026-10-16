@@ -22,7 +22,7 @@ class Paper:
     url: Optional[str] = None
     venue: Optional[str] = None
     keywords: list[str] = field(default_factory=list)
-    source: str = ""  # "arxiv", "openalex", "semantic_scholar", "scopus"
+    source: str = ""  # "arxiv", "crossref", "openalex", "semantic_scholar", "scopus"
     source_id: str = ""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
 
@@ -42,6 +42,14 @@ class Paper:
     # one query lists them all. Lets the report attribute results per query
     # (with overlap — queries are OR'd, so a paper may belong to several).
     matched_queries: list[str] = field(default_factory=list)
+
+    # Every source that returned this paper, and each source's own record id.
+    # A single entry at search time; on dedup the canonical paper absorbs those
+    # of its duplicates, so it still knows it was on arXiv (download.py uses the
+    # arXiv id) even when another source's record was kept. Empty for records
+    # saved before v1.6, which only know ``source``.
+    found_in_sources: list[str] = field(default_factory=list)
+    source_ids: dict[str, str] = field(default_factory=dict)
 
     # Screening fields (populated later)
     screen_decision: Optional[str] = None  # "include", "exclude", "maybe"

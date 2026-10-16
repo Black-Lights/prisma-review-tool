@@ -2,24 +2,23 @@
 
 Two-channel model (see also :mod:`query_plan` for the *query* channel):
 
-* **Request channel** — when a source exposes a filter as a native, structured
-  facet, we send it in the request so the API filters server-side. This is
-  independent of the plain-text degradation that hits the *query* channel of
-  Crossref/Semantic Scholar: those sources still honour structured filters
-  (e.g. Crossref ``filter=type:journal-article``) even though they ignore the
-  Boolean query.
+* **Request channel**: when a source exposes a filter as a native, structured
+  facet, it is sent in the request so the API filters server-side. Crossref
+  honours structured filters (``filter=type:journal-article``) even though it
+  ignores the Boolean query.
 
-* **Post-request channel** — :func:`apply_post_filters` always runs after a
-  fetch as a safety net. For facets the source applied server-side it is a
-  no-op; for facets the source can't express it is the actual enforcement.
-  It only excludes a paper when the relevant field is *present and fails*;
-  missing/unknown metadata keeps the paper (conservative), except
-  ``require_abstract`` where an empty abstract is itself the failing value.
+* **Post-request channel**: :func:`apply_post_filters` runs after a fetch and
+  enforces only the filters a source cannot apply itself. A facet the source
+  already applied is never re-checked locally: the server matched it on data
+  we do not fully store (for example every ISSN of a journal), so a local
+  re-check would delete correct results. Missing metadata keeps the paper,
+  except ``require_abstract`` where an empty abstract is the failing value.
 
-:func:`filter_warnings` reports, per (source, filter), whether a filter runs at
-the request (✓, no warning), is applied locally (⚠️), or is unsupported and
-ignored (❌). Those warnings surface in the pipeline ``warnings`` field, exactly
-like the query-plan warnings.
+:func:`filter_modes` is the single place that decides, per source, whether a
+filter is applied at the request, locally after the fetch, or not at all.
+:func:`apply_post_filters`, :func:`source_filter_warnings` and
+:func:`filter_plan` all derive from it, so the report can never say
+"filtered at source" while the warnings say "ignored".
 """
 
 from __future__ import annotations
@@ -29,8 +28,8 @@ from dataclasses import dataclass
 
 from ..models import Paper
 
-# ISSN form: four digits, hyphen, three digits, then a digit or X (check digit).
-_ISSN_RE = re.compile(r"^\d{4}-\d{3}[\dxX]$")
+# ISSN: four digits, optional hyphen, three digits and a check digit or X.
+_ISSN_RE = re.compile(r"^(\d{4})-?(\d{3}[\dX])$")
 
 # Canonical document types we accept in config, mapped to each source's own
 # vocabulary. A canonical type absent from a source's map has no equivalent
@@ -52,7 +51,7 @@ _DOC_TYPE_MAP: dict[str, dict[str, str]] = {
         "journal-article": "JournalArticle",
         "review": "Review",
         "conference-paper": "Conference",
-        "book-chapter": "Book",
+        "book-chapter": "BookSection",
     },
     "scopus": {
         "journal-article": "ar",
@@ -62,11 +61,11 @@ _DOC_TYPE_MAP: dict[str, dict[str, str]] = {
     },
 }
 
-# How each source handles each filter: "request" (native server-side facet),
+# How each source can handle each filter: "request" (native server-side facet),
 # "post" (only enforceable locally after fetch), or "unsupported" (cannot be
-# evaluated at all — ignored). arXiv is preprint-only and open-access by
-# nature, so document_types/venues are unsupported while open_access is
-# inherently satisfied.
+# evaluated: ignored). arXiv is preprint-only and open access by nature.
+# Crossref has no open-access facet and its records carry no OA flag;
+# Semantic Scholar has no ISSN facet and its records carry no ISSN.
 _FILTER_SUPPORT: dict[str, dict[str, str]] = {
     "openalex": {
         "document_types": "request", "require_abstract": "request",
@@ -74,11 +73,11 @@ _FILTER_SUPPORT: dict[str, dict[str, str]] = {
     },
     "crossref": {
         "document_types": "request", "require_abstract": "request",
-        "open_access": "post", "venues_issn": "request", "venues_name": "post",
+        "open_access": "unsupported", "venues_issn": "request", "venues_name": "post",
     },
     "semantic_scholar": {
         "document_types": "request", "require_abstract": "post",
-        "open_access": "request", "venues_issn": "post", "venues_name": "request",
+        "open_access": "request", "venues_issn": "unsupported", "venues_name": "request",
     },
     "scopus": {
         "document_types": "request", "require_abstract": "post",
@@ -88,6 +87,14 @@ _FILTER_SUPPORT: dict[str, dict[str, str]] = {
         "document_types": "unsupported", "require_abstract": "post",
         "open_access": "request", "venues_issn": "unsupported", "venues_name": "unsupported",
     },
+}
+
+_LABELS = {
+    "document_types": "document_types",
+    "require_abstract": "require_abstract",
+    "open_access": "open_access",
+    "venues_issn": "venues (ISSN)",
+    "venues_name": "venues (name)",
 }
 
 
@@ -115,14 +122,26 @@ class SearchFilters:
                     or self.open_access or self.venues)
 
 
+def normalize_issn(value: object) -> str | None:
+    """``0034-4257`` form (hyphen, capital X) for anything shaped like an ISSN, else None."""
+    text = str(value or "").strip().upper().replace(" ", "")
+    m = _ISSN_RE.match(text)
+    return f"{m.group(1)}-{m.group(2)}" if m else None
+
+
 def split_venues(venues: list[str]) -> tuple[list[str], list[str]]:
-    """Partition venue tokens into (ISSNs, names) by shape."""
+    """Partition venue tokens into (normalized ISSNs, names) by shape."""
     issns, names = [], []
     for v in venues:
         v = str(v).strip()
         if not v:
             continue
-        (issns if _ISSN_RE.match(v) else names).append(v)
+        issn = normalize_issn(v)
+        if issn:
+            if issn not in issns:
+                issns.append(issn)
+        else:
+            names.append(v)
     return issns, names
 
 
@@ -132,24 +151,61 @@ def _mapped_types(source: str, document_types: list[str]) -> list[str]:
     return [table[t] for t in document_types if t in table]
 
 
+def _s2_venue_names(names: list[str]) -> list[str]:
+    # The venue parameter is comma-separated, so a name containing a comma
+    # would be split into two wrong names: it is not sent (and reported).
+    return [n for n in names if "," not in n]
+
+
+def filter_modes(source: str, f: SearchFilters) -> dict[str, str]:
+    """How ``source`` applies each active filter: request, post or unsupported.
+
+    Only active filters are returned. A document-type filter with no
+    equivalent type for this source is unsupported; venues given by name are
+    unsupported where the source restricts by ISSN at the request (they could
+    never come back) or where no name can be sent.
+    """
+    support = _FILTER_SUPPORT.get(source, {})
+    modes: dict[str, str] = {}
+    if f.document_types:
+        mode = support.get("document_types", "unsupported")
+        if mode == "request" and not _mapped_types(source, f.document_types):
+            mode = "unsupported"
+        modes["document_types"] = mode
+    if f.require_abstract:
+        modes["require_abstract"] = support.get("require_abstract", "unsupported")
+    if f.open_access:
+        modes["open_access"] = support.get("open_access", "unsupported")
+    issns, names = split_venues(f.venues)
+    if issns:
+        modes["venues_issn"] = support.get("venues_issn", "unsupported")
+    if names:
+        mode = support.get("venues_name", "unsupported")
+        if mode == "post" and issns and modes.get("venues_issn") == "request":
+            mode = "unsupported"
+        if mode == "request" and source == "semantic_scholar" and not _s2_venue_names(names):
+            mode = "unsupported"
+        modes["venues_name"] = mode
+    return modes
+
+
 # --- Request-channel builders -------------------------------------------------
 # Each returns the source-specific representation to merge into the request.
-# Warnings are produced centrally by filter_warnings(), not here, so the
-# builders stay pure and side-effect free.
+# Warnings are produced centrally by source_filter_warnings(), not here.
 
-def build_openalex_filters(f: SearchFilters) -> dict:
-    """Keyword args for ``pyalex.Works().filter(**...)``."""
-    out: dict = {}
+def build_openalex_filters(f: SearchFilters) -> dict[str, str]:
+    """Extra entries for OpenAlex's ``filter`` parameter (key -> value)."""
+    out: dict[str, str] = {}
     types = _mapped_types("openalex", f.document_types)
     if types:
         out["type"] = "|".join(types)
     if f.require_abstract:
-        out["has_abstract"] = True
+        out["has_abstract"] = "true"
     if f.open_access:
-        out["is_oa"] = True
+        out["is_oa"] = "true"
     issns, _ = split_venues(f.venues)
     if issns:
-        out["primary_location"] = {"source": {"issn": "|".join(issns)}}
+        out["primary_location.source.issn"] = "|".join(issns)
     return out
 
 
@@ -175,7 +231,9 @@ def build_scopus_clause(f: SearchFilters) -> str:
     if f.open_access:
         parts.append("OPENACCESS(1)")
     issns, names = split_venues(f.venues)
-    venue_terms = [f"ISSN({i})" for i in issns] + [f'SRCTITLE("{n}")' for n in names]
+    # A double quote inside SRCTITLE("...") would end the phrase early.
+    venue_terms = ([f"ISSN({i})" for i in issns]
+                   + [f'SRCTITLE("{" ".join(n.replace(chr(34), " ").split())}")' for n in names])
     if venue_terms:
         parts.append("(" + " OR ".join(venue_terms) + ")")
     return "".join(f" AND {p}" for p in parts)
@@ -190,6 +248,7 @@ def build_semantic_params(f: SearchFilters) -> dict:
     if f.open_access:
         out["openAccessPdf"] = ""          # presence-only flag
     _, names = split_venues(f.venues)
+    names = _s2_venue_names(names)
     if names:
         out["venue"] = ",".join(names)
     return out
@@ -197,42 +256,38 @@ def build_semantic_params(f: SearchFilters) -> dict:
 
 # --- Post-request channel -----------------------------------------------------
 
-def apply_post_filters(papers: list[Paper], f: SearchFilters, source: str) -> list[Paper]:
-    """Filter a returned list as the always-on safety net.
+def apply_post_filters(papers: list[Paper], f: SearchFilters, source: str,
+                       skip: frozenset[str] | set[str] = frozenset()) -> list[Paper]:
+    """Enforce the filters ``source`` cannot apply itself (mode "post").
 
-    Conservative: a paper is dropped only when a field is present and fails the
-    filter. Unknown metadata (``None``/empty for type, is_oa, issn) keeps the
-    paper, so sources that don't expose a facet aren't wiped out. The one
-    exception is ``require_abstract``: an empty abstract is the failing value.
+    Filters applied at the request are not re-checked and unsupported ones
+    are not enforced (both are reported by :func:`source_filter_warnings`).
+    ``skip`` names filters to leave out for this result, e.g. when the source
+    returned records without the field the filter needs.
     """
     if f.is_empty:
         return papers
-
-    # Respect the support matrix: a filter marked "unsupported" for this source
-    # is reported as ignored (see filter_warnings), so the post pass must not
-    # silently enforce it and wipe out an entire source.
-    support = _FILTER_SUPPORT.get(source, {})
-
-    def on(key: str) -> bool:
-        return support.get(key, "unsupported") != "unsupported"
+    modes = filter_modes(source, f)
+    post = {k for k, m in modes.items() if m == "post"} - set(skip)
+    if not post:
+        return papers
 
     accept_types = set(_mapped_types(source, f.document_types))
     issns, names = split_venues(f.venues)
     names_lower = [n.lower() for n in names]
-    check_issn = issns and on("venues_issn")
-    check_name = names and on("venues_name")
 
     kept: list[Paper] = []
     for p in papers:
-        if f.require_abstract and on("require_abstract") and not (p.abstract or "").strip():
+        if "require_abstract" in post and not (p.abstract or "").strip():
             continue
-        if accept_types and on("document_types") and p.type and p.type not in accept_types:
+        if "document_types" in post and accept_types and p.type and p.type not in accept_types:
             continue
-        if f.open_access and on("open_access") and p.is_oa is False:
+        if "open_access" in post and p.is_oa is False:
             continue
-        if check_issn or check_name:
-            issn_ok = check_issn and bool(p.issn) and p.issn in issns
-            name_ok = check_name and bool(p.venue) and any(n in p.venue.lower() for n in names_lower)
+        if "venues_issn" in post or "venues_name" in post:
+            issn_ok = "venues_issn" in post and normalize_issn(p.issn) in issns
+            name_ok = ("venues_name" in post and bool(p.venue)
+                       and any(n in p.venue.lower() for n in names_lower))
             has_info = bool(p.issn) or bool(p.venue)
             # Only exclude when we have venue info and it matches nothing.
             if has_info and not (issn_ok or name_ok):
@@ -243,55 +298,54 @@ def apply_post_filters(papers: list[Paper], f: SearchFilters, source: str) -> li
 
 # --- Warnings -----------------------------------------------------------------
 
-def _filter_labels(f: SearchFilters) -> list[tuple[str, str]]:
-    """Active (support_key, human_name) pairs for the configured filters."""
-    out: list[tuple[str, str]] = []
-    if f.document_types:
-        out.append(("document_types", "document_types"))
-    if f.require_abstract:
-        out.append(("require_abstract", "require_abstract"))
-    if f.open_access:
-        out.append(("open_access", "open_access"))
-    issns, names = split_venues(f.venues)
-    if issns:
-        out.append(("venues_issn", "venues (ISSN)"))
-    if names:
-        out.append(("venues_name", "venues (name)"))
-    return out
-
-
 def source_filter_warnings(source: str, f: SearchFilters) -> list[str]:
     """Transparency warnings for how ``source`` applies ``f``."""
     if f.is_empty:
         return []
 
     support = _FILTER_SUPPORT.get(source, {})
+    modes = filter_modes(source, f)
     label = f"{source} (filters)"
     warns: list[str] = []
+    issns, names = split_venues(f.venues)
 
-    # Document types with no equivalent in this source are silently lost
-    # server-side unless we flag them.
-    if f.document_types:
+    # Document types with no equivalent in this source are lost server-side
+    # unless we flag them (when some other requested type is still sent).
+    if modes.get("document_types") == "request":
         table = _DOC_TYPE_MAP.get(source, {})
         for t in f.document_types:
-            if support.get("document_types") == "unsupported":
-                continue  # whole filter reported below
             if t not in table:
-                warns.append(
-                    f"{label}: document type '{t}' has no equivalent here — ignored."
-                )
+                warns.append(f"{label}: document type '{t}' has no equivalent here: ignored.")
 
-    for key, name in _filter_labels(f):
-        mode = support.get(key, "unsupported")
+    for key, mode in modes.items():
+        name = _LABELS[key]
         if mode == "post":
-            warns.append(
-                f"{label}: '{name}' is not a server-side facet here — "
-                f"applied locally after fetch."
-            )
+            warns.append(f"{label}: '{name}' is not a server-side facet here: "
+                         f"applied locally after fetch.")
         elif mode == "unsupported":
-            warns.append(
-                f"{label}: '{name}' is not supported by this source — ignored."
-            )
+            if key == "venues_name" and support.get("venues_name") == "post":
+                warns.append(
+                    f"{label}: venues are restricted by ISSN at the source, so venues given only "
+                    f"by name ({', '.join(names)}) cannot be returned. Add their ISSNs instead."
+                )
+            elif key == "document_types" and support.get("document_types") == "request":
+                warns.append(f"{label}: none of the document types {f.document_types} has an "
+                             f"equivalent here: ignored.")
+            else:
+                warns.append(f"{label}: '{name}' is not supported by this source: ignored.")
+
+    # Mixed venues where only the names reach the source: ISSN-only venues are excluded.
+    if (issns and modes.get("venues_name") == "request"
+            and modes.get("venues_issn") == "unsupported"):
+        warns.append(
+            f"{label}: only venue names can be sent here, so papers from venues given only by "
+            f"ISSN ({', '.join(issns)}) cannot be returned. Add their names too."
+        )
+    if source == "semantic_scholar" and modes.get("venues_name"):
+        for n in names:
+            if "," in n:
+                warns.append(f"{label}: venue name '{n}' contains a comma and cannot be sent "
+                             f"to Semantic Scholar: ignored.")
     return warns
 
 
@@ -311,19 +365,15 @@ def filter_plan(config) -> dict:
 
     Returns, for each active filter, how every enabled source applies it:
     ``"request"`` (server-side facet), ``"post"`` (enforced locally after the
-    fetch), or ``"unsupported"`` (cannot be evaluated — ignored). Drives the
+    fetch), or ``"unsupported"`` (cannot be evaluated: ignored). Drives the
     "filtered at source vs. after the call" table in the report UI.
     """
     f = SearchFilters.from_config(config)
     sources = list(getattr(config, "sources", []) or [])
+    modes = {s: filter_modes(s, f) for s in sources}
+    keys = list(filter_modes("", f))  # the active filters, in a stable order
     filters = [
-        {
-            "filter": name,
-            "by_source": {
-                s: _FILTER_SUPPORT.get(s, {}).get(key, "unsupported")
-                for s in sources
-            },
-        }
-        for key, name in _filter_labels(f)
+        {"filter": _LABELS[key], "by_source": {s: modes[s].get(key, "unsupported") for s in sources}}
+        for key in keys
     ]
     return {"sources": sources, "filters": filters, "empty": f.is_empty}
