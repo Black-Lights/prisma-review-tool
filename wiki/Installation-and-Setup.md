@@ -100,8 +100,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 | Package | Purpose |
 |---------|---------|
 | `arxiv` | arXiv API search |
-| `pyalex` | OpenAlex API search |
-| `requests` | HTTP requests (Semantic Scholar, Scopus) |
+| `requests` | HTTP requests (OpenAlex, Crossref, Semantic Scholar, Scopus) |
+| `filelock` | Safe concurrent writes (web app and MCP server share files) |
 | `pandas` | Data processing and CSV export |
 | `pyyaml` | YAML config parsing |
 | `rapidfuzz` | Fuzzy string matching for deduplication |

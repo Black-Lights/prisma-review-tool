@@ -1,7 +1,6 @@
 # Database search
 arxiv>=2.1.0
 requests>=2.31.0
-pyalex>=0.15
 
 # Data processing
 pandas>=2.0.0
