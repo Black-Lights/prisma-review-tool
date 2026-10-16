@@ -140,6 +140,23 @@ def ensure_config() -> None:
 
 # ── Running ──────────────────────────────────────────────────────────────────
 
+# Seconds uvicorn waits for open connections when asked to stop. An open
+# browser tab holds a live-update stream (/api/events) for up to about a
+# minute; without a bound, Ctrl+C and --reload wait for it.
+GRACEFUL_SHUTDOWN_SECONDS = 3
+
+
+def backend_command(port: int) -> list[str]:
+    """The command that starts the API server (uvicorn) on 127.0.0.1:port."""
+    return [
+        venv_python(), "-m", "uvicorn",
+        "api.main:app",
+        "--host", "127.0.0.1",
+        "--port", str(port),
+        "--timeout-graceful-shutdown", str(GRACEFUL_SHUTDOWN_SECONDS),
+    ]
+
+
 def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None:
     """Start FastAPI backend + Next.js frontend, handle cleanup on exit."""
     processes: list[subprocess.Popen] = []
@@ -169,12 +186,7 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
 
     # Start backend (uvicorn)
     log(f"Starting API server on port {backend_port}...", "info")
-    backend_cmd = [
-        venv_python(), "-m", "uvicorn",
-        "api.main:app",
-        "--host", "127.0.0.1",
-        "--port", str(backend_port),
-    ]
+    backend_cmd = backend_command(backend_port)
     kwargs = {}
     if not IS_WIN:
         kwargs["preexec_fn"] = os.setsid

@@ -1,7 +1,9 @@
 """FastAPI backend for PRISMA Review Tool.
 
 Wraps the prisma_review module as a REST API.
-Run with: uvicorn api.main:app --reload --port 8000
+Run with: uvicorn api.main:app --reload --port 8000 --timeout-graceful-shutdown 3
+(the timeout keeps an open browser tab's /api/events stream from delaying
+Ctrl+C and --reload by up to a minute).
 """
 
 from __future__ import annotations

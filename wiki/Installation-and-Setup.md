@@ -87,7 +87,7 @@ python -m prisma_review status
 
 # For web app (two terminals)
 pip install uvicorn fastapi python-multipart
-uvicorn api.main:app --port 8000
+uvicorn api.main:app --port 8000 --timeout-graceful-shutdown 3
 
 # In a second terminal
 cd web
