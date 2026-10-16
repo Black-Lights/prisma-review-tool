@@ -13,7 +13,6 @@ import functools
 import json
 import re
 import sys
-import threading
 import traceback
 from datetime import date
 from pathlib import Path
@@ -29,8 +28,14 @@ from prisma_review import __version__, workspace
 from prisma_review.config import (
     KNOWN_DOCUMENT_TYPES, KNOWN_SOURCES, Config, ConfigError, load_raw_config, save_raw_config,
 )
-from prisma_review.models import Paper, save_papers, load_papers
-from prisma_review.screen import get_by_decision, screen_by_rules, count_excluded_by_required
+from prisma_review.models import load_papers
+from prisma_review.pipeline import (
+    RunActiveError, StepError, active_run, describe_run, request_cancel_on_disk,
+)
+from prisma_review.screen import (
+    apply_eligibility_decisions, apply_screen_decisions, rescreen as rescreen_papers,
+)
+from prisma_review.stats import load_papers_cached, project_stats
 from prisma_review.export import export_bibtex, export_csv
 from prisma_review.search.filters import filter_warnings
 from prisma_review.search.query_plan import query_warnings
@@ -38,7 +43,7 @@ from prisma_review.storage import project_lock
 from prisma_review.download import download_papers
 from prisma_review.diagram import (
     generate_markdown_diagram, generate_png_diagram,
-    load_state, save_state,
+    load_state,
 )
 from api.session import SessionManager
 
@@ -68,8 +73,8 @@ mcp = FastMCP("prisma-review", instructions=INSTRUCTIONS)
 # FastMCP reports the SDK version as the server version; report the tool's.
 mcp._mcp_server.version = __version__
 
-# Shared file lock and singleton SessionManager for pipeline operations
-_file_lock = threading.Lock()
+# The pipeline runs this server starts (one at a time). File writes are
+# serialised with the web API through prisma_review.storage.project_lock.
 _session_manager: SessionManager | None = None
 
 
@@ -89,7 +94,7 @@ def _tool(fn: Callable[..., str]) -> Callable[..., str]:
     def wrapper(*args: Any, **kwargs: Any) -> str:
         try:
             return fn(*args, **kwargs)
-        except (workspace.WorkspaceError, ConfigError, FileNotFoundError) as exc:
+        except (workspace.WorkspaceError, ConfigError, FileNotFoundError, StepError) as exc:
             return _error(str(exc))
         except Exception as exc:  # noqa: BLE001 - an agent gets JSON, the log gets the trace
             traceback.print_exc(file=sys.stderr)
@@ -117,22 +122,31 @@ def _target(config: Config) -> dict:
     }
 
 
-def _get_session_manager() -> SessionManager:
-    """Get or create the singleton SessionManager for MCP context."""
+def _get_session_manager(config: Config | None = None) -> SessionManager:
+    """The SessionManager for the current project (rebuilt after a project switch unless it runs)."""
     global _session_manager
-    if _session_manager is None:
+    if config is None:
         config = _get_config()
-        _session_manager = SessionManager(_file_lock, state_file=config.state_file)
+    if _session_manager is None or (
+            not _session_manager.is_running
+            and getattr(_session_manager, "state_file", config.state_file) != config.state_file):
+        _session_manager = SessionManager(state_file=config.state_file)
     return _session_manager
 
 
 def _pipeline_active() -> bool:
-    """True while this server runs a pipeline: switching projects would orphan it."""
-    return _session_manager is not None and _session_manager.is_running
+    """True while a pipeline runs here, or on the active project in another process (the web app)."""
+    if _session_manager is not None and _session_manager.is_running:
+        return True
+    try:
+        config = _get_config()
+    except Exception:  # noqa: BLE001 - no usable project, so nothing runs on it
+        return False
+    return active_run(config.state_file) is not None
 
 
-_RUNNING_ERROR = ("A pipeline is running in this server. Wait for it to finish or call "
-                  "stop_pipeline before switching projects.")
+_RUNNING_ERROR = ("A pipeline is running on the active project (in this server or in the web app). "
+                  "Wait for it to finish or call stop_pipeline before switching projects.")
 
 
 def _config_guard(config: Config, problems_key: str = "problems") -> str | None:
@@ -212,7 +226,9 @@ def _decision_items(decisions: list[Decision] | str) -> list[dict] | str:
 
 @_tool
 def get_screening_stats() -> str:
-    """Get current screening statistics: total papers, how many included, excluded, maybe, and remaining to screen."""
+    """Get the review's numbers: search, dedup, screening (split by rule, AI and manual
+    decisions), eligibility, and the PRISMA 2020 flow (records screened, excluded,
+    awaiting review, included)."""
     config = _get_config()
     state = load_state(config.state_file)
 
@@ -220,11 +236,14 @@ def get_screening_stats() -> str:
         return _error("No pipeline state found. Run start_pipeline (or 'python -m prisma_review search') first.",
                       **_target(config))
 
+    computed = project_stats(config, state)
     result = {
         **_target(config),
         "search": state.get("search", {}),
         "dedup": state.get("dedup", {}),
-        "screen": state.get("screen", {}),
+        "screen": computed["screen"],
+        "eligibility": computed["eligibility"],
+        "flow": computed["flow"],
     }
     return _dumps(result)
 
@@ -283,12 +302,12 @@ def get_papers_to_screen(batch_size: int = 10, filter_type: str = "maybe") -> st
     config = _get_config()
 
     if filter_type == "maybe":
-        papers = load_papers(config.screen_dir / "maybe.json")
+        papers = load_papers_cached(config.screen_dir / "maybe.json")
     elif filter_type == "unscreened":
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
+        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
         papers = [p for p in papers if p.screen_decision is None]
     else:
-        papers = load_papers(config.screen_dir / "screen_results.json")
+        papers = load_papers_cached(config.screen_dir / "screen_results.json")
 
     batch = papers[:batch_size]
     result = []
@@ -324,7 +343,7 @@ def get_paper_details(paper_id: str) -> str:
 
     # Search across all result files
     for fname in ["screen_results.json", "included.json", "excluded.json", "maybe.json"]:
-        papers = load_papers(config.screen_dir / fname)
+        papers = load_papers_cached(config.screen_dir / fname)
         for p in papers:
             if p.id == paper_id:
                 return _dumps({
@@ -344,7 +363,7 @@ def get_paper_details(paper_id: str) -> str:
                 })
 
     # Also check dedup results
-    papers = load_papers(config.dedup_dir / "deduplicated.json")
+    papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
     for p in papers:
         if p.id == paper_id:
             return _dumps({"id": p.id, "title": p.title, "authors": p.authors,
@@ -367,45 +386,17 @@ def screen_paper(paper_id: str, decision: str, reason: str) -> str:
         return _error("Decision must be 'include' or 'exclude'")
 
     config = _get_config()
-    all_papers = load_papers(config.screen_dir / "screen_results.json")
-
-    found = False
-    for p in all_papers:
-        if p.id == paper_id:
-            p.screen_decision = decision
-            p.screen_reason = reason
-            p.screen_method = "ai"
-            found = True
-            break
-
-    if not found:
+    results, summary = apply_screen_decisions(
+        config, [{"paper_id": paper_id, "decision": decision, "reason": reason}], "ai")
+    if results[0]["status"] != "ok":
         return _error(f"Paper '{paper_id}' not found in screen results.", **_target(config))
-
-    # Save updated results
-    save_papers(all_papers, config.screen_dir / "screen_results.json")
-    included = get_by_decision(all_papers, "include")
-    excluded = get_by_decision(all_papers, "exclude")
-    maybe = get_by_decision(all_papers, "maybe")
-    save_papers(included, config.screen_dir / "included.json")
-    save_papers(excluded, config.screen_dir / "excluded.json")
-    save_papers(maybe, config.screen_dir / "maybe.json")
-
-    # Update state
-    state = load_state(config.state_file)
-    state["screen"] = {
-        "total_screened": len(all_papers),
-        "included": len(included),
-        "excluded": len(excluded),
-        "maybe": len(maybe),
-    }
-    save_state(state, config.state_file)
 
     return _dumps({
         "status": "ok",
         **_target(config),
         "paper_id": paper_id,
         "decision": decision,
-        "remaining_maybe": len(maybe),
+        "remaining_maybe": summary["maybe"],
     })
 
 
@@ -423,50 +414,12 @@ def batch_screen_papers(decisions: list[Decision] | str) -> str:
         return items
 
     config = _get_config()
-    all_papers = load_papers(config.screen_dir / "screen_results.json")
-    paper_map = {p.id: p for p in all_papers}
-
-    results = []
-    for item in items:
-        pid = item.get("paper_id", "")
-        dec = item.get("decision", "")
-        reason = item.get("reason", "")
-
-        if dec not in ("include", "exclude"):
-            results.append({"paper_id": pid, "status": "error", "message": "invalid decision"})
-            continue
-
-        if pid not in paper_map:
-            results.append({"paper_id": pid, "status": "error", "message": "not found"})
-            continue
-
-        paper_map[pid].screen_decision = dec
-        paper_map[pid].screen_reason = reason
-        paper_map[pid].screen_method = "ai"
-        results.append({"paper_id": pid, "status": "ok", "decision": dec})
-
-    # Save
-    save_papers(all_papers, config.screen_dir / "screen_results.json")
-    included = get_by_decision(all_papers, "include")
-    excluded = get_by_decision(all_papers, "exclude")
-    maybe = get_by_decision(all_papers, "maybe")
-    save_papers(included, config.screen_dir / "included.json")
-    save_papers(excluded, config.screen_dir / "excluded.json")
-    save_papers(maybe, config.screen_dir / "maybe.json")
-
-    state = load_state(config.state_file)
-    state["screen"] = {
-        "total_screened": len(all_papers),
-        "included": len(included),
-        "excluded": len(excluded),
-        "maybe": len(maybe),
-    }
-    save_state(state, config.state_file)
+    results, summary = apply_screen_decisions(config, items, "ai")
 
     return _dumps({
         **_target(config),
         "processed": len(results),
-        "remaining_maybe": len(maybe),
+        "remaining_maybe": summary["maybe"],
         "results": results,
     })
 
@@ -479,10 +432,10 @@ def get_papers_for_eligibility(batch_size: int = 10) -> str:
         batch_size: Number of papers to return (default 10)
     """
     config = _get_config()
-    papers = load_papers(config.screen_dir / "included.json")
+    papers = load_papers_cached(config.screen_dir / "included.json")
 
     # Load existing eligibility results to skip already-screened papers
-    elig_results = load_papers(config.eligibility_dir / "eligibility_results.json")
+    elig_results = load_papers_cached(config.eligibility_dir / "eligibility_results.json")
     screened_ids = {p.id for p in elig_results if p.eligibility_decision is not None}
 
     unscreened = [p for p in papers if p.id not in screened_ids]
@@ -525,53 +478,18 @@ def eligibility_screen_paper(paper_id: str, decision: str, reason: str) -> str:
         return _error("Decision must be 'include' or 'exclude'")
 
     config = _get_config()
-    all_papers = load_papers(config.screen_dir / "included.json")
-
-    # Load or initialize eligibility results
-    elig_path = config.eligibility_dir / "eligibility_results.json"
-    elig_results = load_papers(elig_path)
-    elig_map = {p.id: p for p in elig_results}
-
-    # Find the paper and update
-    found = False
-    for p in all_papers:
-        if p.id == paper_id:
-            p.eligibility_decision = decision
-            p.eligibility_reason = reason
-            p.eligibility_method = "ai"
-            elig_map[p.id] = p
-            found = True
-            break
-
-    if not found:
+    results, summary = apply_eligibility_decisions(
+        config, [{"paper_id": paper_id, "decision": decision, "reason": reason}], "ai")
+    if results[0]["status"] != "ok":
         return _error(f"Paper '{paper_id}' not found in first-pass included papers.",
                       **_target(config))
-
-    # Save all eligibility results
-    all_elig = list(elig_map.values())
-    save_papers(all_elig, elig_path)
-    elig_included = [p for p in all_elig if p.eligibility_decision == "include"]
-    elig_excluded = [p for p in all_elig if p.eligibility_decision == "exclude"]
-    save_papers(elig_included, config.eligibility_dir / "eligible_included.json")
-    save_papers(elig_excluded, config.eligibility_dir / "eligible_excluded.json")
-
-    # Update state
-    state = load_state(config.state_file)
-    state["eligibility"] = {
-        "input_from_screening": len(all_papers),
-        "screened": len(all_elig),
-        "included": len(elig_included),
-        "excluded": len(elig_excluded),
-        "remaining": len(all_papers) - len(all_elig),
-    }
-    save_state(state, config.state_file)
 
     return _dumps({
         "status": "ok",
         **_target(config),
         "paper_id": paper_id,
         "decision": decision,
-        "remaining": len(all_papers) - len(all_elig),
+        "remaining": summary["remaining"],
     })
 
 
@@ -589,57 +507,12 @@ def batch_eligibility_screen(decisions: list[Decision] | str) -> str:
         return items
 
     config = _get_config()
-    all_papers = load_papers(config.screen_dir / "included.json")
-    paper_map = {p.id: p for p in all_papers}
-
-    # Load or initialize eligibility results
-    elig_path = config.eligibility_dir / "eligibility_results.json"
-    elig_results = load_papers(elig_path)
-    elig_map = {p.id: p for p in elig_results}
-
-    results = []
-    for item in items:
-        pid = item.get("paper_id", "")
-        dec = item.get("decision", "")
-        reason = item.get("reason", "")
-
-        if dec not in ("include", "exclude"):
-            results.append({"paper_id": pid, "status": "error", "message": "invalid decision"})
-            continue
-
-        if pid not in paper_map:
-            results.append({"paper_id": pid, "status": "error", "message": "not found"})
-            continue
-
-        paper_map[pid].eligibility_decision = dec
-        paper_map[pid].eligibility_reason = reason
-        paper_map[pid].eligibility_method = "ai"
-        elig_map[pid] = paper_map[pid]
-        results.append({"paper_id": pid, "status": "ok", "decision": dec})
-
-    # Save
-    all_elig = list(elig_map.values())
-    save_papers(all_elig, elig_path)
-    elig_included = [p for p in all_elig if p.eligibility_decision == "include"]
-    elig_excluded = [p for p in all_elig if p.eligibility_decision == "exclude"]
-    save_papers(elig_included, config.eligibility_dir / "eligible_included.json")
-    save_papers(elig_excluded, config.eligibility_dir / "eligible_excluded.json")
-
-    # Update state
-    state = load_state(config.state_file)
-    state["eligibility"] = {
-        "input_from_screening": len(all_papers),
-        "screened": len(all_elig),
-        "included": len(elig_included),
-        "excluded": len(elig_excluded),
-        "remaining": len(all_papers) - len(all_elig),
-    }
-    save_state(state, config.state_file)
+    results, summary = apply_eligibility_decisions(config, items, "ai")
 
     return _dumps({
         **_target(config),
         "processed": len(results),
-        "remaining": len(all_papers) - len(all_elig),
+        "remaining": summary["remaining"],
         "results": results,
     })
 
@@ -652,9 +525,9 @@ def search_in_papers(query: str) -> str:
         query: Search term to look for in titles and abstracts
     """
     config = _get_config()
-    papers = load_papers(config.screen_dir / "screen_results.json")
+    papers = load_papers_cached(config.screen_dir / "screen_results.json")
     if not papers:
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
+        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
 
     query_lower = query.lower()
     matches = []
@@ -674,7 +547,12 @@ def search_in_papers(query: str) -> str:
 
 @_tool
 def generate_report() -> str:
-    """Generate PRISMA flow diagram and export included papers to .bib and .csv."""
+    """Generate the PRISMA 2020 flow diagram (Markdown and PNG) and export included papers to .bib and .csv.
+
+    Returns the files written and `flow`: the numbers in the diagram (records
+    identified, removed before screening, screened, excluded, awaiting review,
+    assessed for eligibility, included) with `notes` on anything still pending.
+    """
     config = _get_config()
     state = load_state(config.state_file)
 
@@ -682,21 +560,23 @@ def generate_report() -> str:
         return _error("No pipeline state. Run the search pipeline first.", **_target(config))
 
     # Generate diagrams
-    generate_markdown_diagram(state, config.export_dir / "prisma_flow.md")
-    generate_png_diagram(state, config.export_dir / "prisma_flow.png")
+    flow = project_stats(config, state)["flow"]
+    generate_markdown_diagram(flow, config.export_dir / "prisma_flow.md")
+    generate_png_diagram(flow, config.export_dir / "prisma_flow.png")
+    outputs = [
+        str(config.export_dir / "prisma_flow.md"),
+        str(config.export_dir / "prisma_flow.png"),
+    ]
 
     # Export first-pass included papers
     included = load_papers(config.screen_dir / "included.json")
     if included:
         export_bibtex(included, config.export_dir / "included_papers.bib")
         export_csv(included, config.export_dir / "included_papers.csv")
-
-    outputs = [
-        str(config.export_dir / "prisma_flow.md"),
-        str(config.export_dir / "prisma_flow.png"),
-        str(config.export_dir / "included_papers.bib"),
-        str(config.export_dir / "included_papers.csv"),
-    ]
+        outputs.extend([
+            str(config.export_dir / "included_papers.bib"),
+            str(config.export_dir / "included_papers.csv"),
+        ])
 
     # Export eligibility-screened papers if they exist
     eligible = load_papers(config.eligibility_dir / "eligible_included.json")
@@ -714,7 +594,7 @@ def generate_report() -> str:
         "included_papers": len(included),
         "eligible_papers": len(eligible),
         "outputs": outputs,
-        "flow_summary": state,
+        "flow": flow,
     })
 
 
@@ -1050,14 +930,15 @@ def create_project(name: str, switch: bool = True) -> str:
 def rescreen(min_include_hits: int) -> str:
     """Re-run keyword screening on the deduplicated papers with a new threshold.
 
-    Does NOT re-search or re-deduplicate — only re-applies the screening rules
-    with a different min_include_hits. Manual decisions are preserved. Mirrors
-    the web app's re-screen control.
+    Does not re-search or re-deduplicate. Keeps every manual and AI decision,
+    drops eligibility decisions about papers that are no longer included, and
+    saves the threshold in the config. Refused while a pipeline runs on the
+    project. Mirrors the web app's re-screen control.
 
     Args:
         min_include_hits: How many include keywords must match (1-10).
     """
-    if not (1 <= min_include_hits <= 10):
+    if isinstance(min_include_hits, bool) or not (1 <= min_include_hits <= 10):
         return _error("min_include_hits must be between 1 and 10.")
 
     config = _get_config()
@@ -1065,62 +946,45 @@ def rescreen(min_include_hits: int) -> str:
     if guard is not None:
         return guard
 
-    papers = load_papers(config.dedup_dir / "deduplicated.json")
-    if not papers:
-        return _error("No deduplicated papers found. Run the pipeline first.", **_target(config))
-
-    # Reset rule-based decisions, preserve manual ones.
-    for p in papers:
-        if p.screen_method != "manual":
-            p.screen_decision = None
-            p.screen_reason = None
-            p.screen_method = None
-
-    papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords,
-                             min_include_hits, config.required_keywords)
-    included = get_by_decision(papers, "include")
-    excluded = get_by_decision(papers, "exclude")
-    maybe = get_by_decision(papers, "maybe")
-    excluded_no_required = count_excluded_by_required(excluded)
-
-    with _file_lock:
-        save_papers(papers, config.screen_dir / "screen_results.json")
-        save_papers(included, config.screen_dir / "included.json")
-        save_papers(excluded, config.screen_dir / "excluded.json")
-        save_papers(maybe, config.screen_dir / "maybe.json")
-
-        state = load_state(config.state_file)
-        state["screen"] = {
-            "total_screened": len(papers),
-            "included": len(included),
-            "excluded": len(excluded),
-            "maybe": len(maybe),
-            "excluded_no_required_keyword": excluded_no_required,
-        }
-        save_state(state, config.state_file)
-
-    return _dumps({
-        "status": "ok",
-        **_target(config),
-        "min_include_hits": min_include_hits,
-        "included": len(included),
-        "excluded": len(excluded),
-        "maybe": len(maybe),
-        "excluded_no_required_keyword": excluded_no_required,
-    })
+    try:
+        result = rescreen_papers(config, min_include_hits)
+    except RunActiveError as exc:
+        return _error(str(exc), status="running", **_target(config))
+    except StepError as exc:
+        return _error(str(exc), **_target(config))
+    return _dumps({**result, **_target(config)})
 
 
 # ── Pipeline Session Management ─────────────────────────────────────
 
 
+def _start(config: Config, start: Callable[[SessionManager], str], **extra: Any) -> str:
+    """Start a run unless one is already going on this project, here or in the web app."""
+    session = _get_session_manager(config)
+    if session.is_running:
+        return _error("Pipeline is already running", status="running", **_target(config))
+    run = active_run(config.state_file)
+    if run is not None:
+        return _error(describe_run(run) + " Use get_pipeline_progress to follow it.",
+                      status="running", **_target(config))
+    try:
+        session_id = start(session)
+    except RunActiveError as exc:
+        return _error(str(exc), status="running", **_target(config))
+    except RuntimeError as exc:
+        return _error(str(exc), status="running", **_target(config))
+    return _dumps({"status": "started", "session_id": session_id, **extra, **_target(config)})
+
+
 @_tool
 def start_pipeline() -> str:
-    """Start the full pipeline (search → dedup → screen) in a background thread.
+    """Start the full pipeline (search, dedup, keyword screening) in a background thread.
 
-    Replaces the project's earlier search, dedup, screening and eligibility
-    results. Returns the session ID, the project it runs on and config
-    warnings. Only one pipeline can run at a time. Use get_pipeline_progress()
-    to monitor progress.
+    Once the new search has finished it replaces the project's earlier search,
+    dedup, screening and eligibility results (a cancelled search keeps them).
+    Returns the session ID, the project it runs on and config warnings. One
+    pipeline per project at a time, including runs started from the web app.
+    Use get_pipeline_progress() to monitor progress.
     """
     config = _get_config()
 
@@ -1128,41 +992,45 @@ def start_pipeline() -> str:
     if guard is not None:
         return guard
 
-    session = _get_session_manager()
-
-    if session.is_running:
-        return _error("Pipeline is already running", status="running", **_target(config))
-
-    session_id = session.start_full_pipeline(config)
-    return _dumps({"status": "started", "session_id": session_id, **_target(config),
-                   "warnings": config.readiness()["warnings"]})
+    return _start(config, lambda session: session.start_full_pipeline(config),
+                  warnings=config.readiness()["warnings"])
 
 
 @_tool
 def get_pipeline_progress() -> str:
-    """Get the current pipeline progress (status, current step, message, completed steps, warnings).
+    """Get the pipeline progress of the active project (status, current step, message,
+    completed steps, warnings, and the per-step result once it has finished).
 
-    This is fast (no disk I/O) and safe to call frequently.
-    Status is one of: idle, running, completed, failed, cancelled.
+    Reads a small state file; safe to call often. Shows runs started from the
+    web app too. Status is one of: idle, running, completed, failed, cancelled
+    (failed with an "interrupted" message when the process running it stopped).
     """
-    session = _get_session_manager()
-    return _dumps(session.get_progress())
+    config = _get_config()
+    session = _get_session_manager(config)
+    return _dumps({**session.get_progress(config.state_file), **_target(config)})
 
 
 @_tool
 def stop_pipeline() -> str:
-    """Request cancellation of the running pipeline.
+    """Request cancellation of the running pipeline (also one started from the web app).
 
-    The pipeline will stop after the current step finishes. Results from
-    completed steps are preserved.
+    The pipeline will stop after the current step finishes (a search stops
+    sooner). Results from completed steps are preserved.
     """
-    session = _get_session_manager()
-    if not session.request_cancel():
-        return _error("No pipeline is currently running")
     try:
-        target = _target(_get_config())
-    except Exception:  # noqa: BLE001 - the cancel itself already succeeded
-        target = {}
+        config: Config | None = _get_config()
+    except (workspace.WorkspaceError, ConfigError, FileNotFoundError):
+        config = None  # still stop a run this server started
+    session = _session_manager
+    if session is None and config is not None:
+        session = _get_session_manager(config)
+    stopped = session is not None and session.request_cancel()
+    run_config = getattr(session, "run_config", None) if stopped else None
+    if not stopped and config is not None:
+        stopped = request_cancel_on_disk(config.state_file)
+    target = _target(run_config or config) if (run_config or config) else {}
+    if not stopped:
+        return _error("No pipeline is currently running", **target)
     return _dumps({"status": "cancel_requested", **target})
 
 
@@ -1171,7 +1039,7 @@ def start_pipeline_step(step: str) -> str:
     """Start a single pipeline step in a background thread.
 
     Args:
-        step: The step to run — one of "search", "dedup", or "screen"
+        step: The step to run: "search", "dedup", or "screen"
     """
     if step not in ("search", "dedup", "screen"):
         return _error(f"Unknown step: {step}. Must be 'search', 'dedup', or 'screen'.")
@@ -1186,13 +1054,7 @@ def start_pipeline_step(step: str) -> str:
         if guard is not None:
             return guard
 
-    session = _get_session_manager()
-
-    if session.is_running:
-        return _error("Pipeline is already running", status="running", **_target(config))
-
-    session_id = session.start_step(step, config)
-    return _dumps({"status": "started", "session_id": session_id, "step": step, **_target(config)})
+    return _start(config, lambda session: session.start_step(step, config), step=step)
 
 
 if __name__ == "__main__":

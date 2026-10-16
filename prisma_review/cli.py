@@ -3,20 +3,18 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
 
+from . import pipeline
 from .config import Config
-from .models import Paper, save_papers, load_papers
-from .search.runner import run_all_searches
-from .search.query_plan import query_warnings
-from .search.filters import filter_warnings
-from .dedup import deduplicate, save_dedup_log
-from .screen import screen_by_rules, get_by_decision, count_excluded_by_required
+from .models import load_papers
+from .pipeline import RunActiveError, StepError
+from .screen import rescreen
+from .stats import project_stats
+from .storage import atomic_write_json
 from .export import export_bibtex, export_csv
 from .download import download_papers
-from .diagram import generate_markdown_diagram, generate_png_diagram, save_state, load_state
+from .diagram import generate_markdown_diagram, generate_png_diagram, load_state
 
 
 def cmd_search(config: Config) -> None:
@@ -26,95 +24,59 @@ def cmd_search(config: Config) -> None:
 
     # Transparency: how each source handles the query and the configured
     # filters (server-side vs applied locally vs ignored).
-    warnings = list(query_warnings(config)) + list(filter_warnings(config))
-    for w in warnings:
+    for w in pipeline.pre_search_warnings(config):
         print(f"  [!] {w}")
 
-    results = run_all_searches(config)
+    outcome = pipeline.search_step(config)
+    source_counts = outcome["sources"]
 
-    # Merge all papers
-    all_papers: list[Paper] = []
-    source_counts: dict[str, int] = {}
-
-    for key, papers in results.items():
-        source_name = key.split("_")[0]
-        source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
-        all_papers.extend(papers)
-
-    # Save
-    save_papers(all_papers, config.search_dir / "all_records.json")
-
-    # Update state
-    state = load_state(config.state_file)
-    state["search"] = {**source_counts, "total": len(all_papers)}
-    save_state(state, config.state_file)
-
-    print(f"\n[SEARCH] Done! Total: {len(all_papers)} papers from {len(source_counts)} source(s)")
+    print(f"\n[SEARCH] Done! Total: {outcome['total']} papers from {len(source_counts)} source(s)")
     for src, count in source_counts.items():
         print(f"  {src}: {count}")
+    for w in outcome["warnings"]:
+        print(f"  [!] {w}")
     print(f"  Saved to: {config.search_dir / 'all_records.json'}")
 
 
 def cmd_dedup(config: Config) -> None:
     """Remove duplicate papers."""
-    papers = load_papers(config.search_dir / "all_records.json")
-    if not papers:
+    print(f"[DEDUP] Deduplicating {config.search_dir / 'all_records.json'}...")
+    try:
+        result = pipeline.dedup_step(config)
+    except StepError:
         print("[DEDUP] No papers found. Run 'search' first.")
         return
 
-    print(f"[DEDUP] Deduplicating {len(papers)} papers...")
-    unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold)
-
-    save_papers(unique, config.dedup_dir / "deduplicated.json")
-    save_dedup_log(log, config.dedup_dir / "duplicates_log.csv")
-
-    state = load_state(config.state_file)
-    state["dedup"] = {"duplicates_removed": len(papers) - len(unique), "remaining": len(unique)}
-    save_state(state, config.state_file)
-
-    print(f"[DEDUP] Done! Removed {len(papers) - len(unique)} duplicates, {len(unique)} unique papers remaining")
+    print(f"[DEDUP] Done! Removed {result['duplicates_removed']} duplicates, "
+          f"{result['remaining']} unique papers remaining")
     print(f"  Saved to: {config.dedup_dir / 'deduplicated.json'}")
-    if log:
+    if result["duplicates_removed"]:
         print(f"  Duplicate log: {config.dedup_dir / 'duplicates_log.csv'}")
 
 
 def cmd_screen_rules(config: Config) -> None:
-    """Apply keyword-based screening rules."""
-    papers = load_papers(config.dedup_dir / "deduplicated.json")
-    if not papers:
+    """Apply keyword-based screening rules (manual and AI decisions are kept)."""
+    print(f"[SCREEN] Screening with keyword rules (min_include_hits = {config.min_include_hits})...")
+    try:
+        result = rescreen(config, persist_threshold=False)
+    except StepError:
         print("[SCREEN] No papers found. Run 'dedup' first.")
         return
-
-    print(f"[SCREEN] Screening {len(papers)} papers with keyword rules...")
-    papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords,
-                             config.min_include_hits, config.required_keywords)
-
-    included = get_by_decision(papers, "include")
-    excluded = get_by_decision(papers, "exclude")
-    maybe = get_by_decision(papers, "maybe")
-    excluded_no_required = count_excluded_by_required(excluded)
-
-    save_papers(papers, config.screen_dir / "screen_results.json")
-    save_papers(included, config.screen_dir / "included.json")
-    save_papers(excluded, config.screen_dir / "excluded.json")
-    save_papers(maybe, config.screen_dir / "maybe.json")
-
-    state = load_state(config.state_file)
-    state["screen"] = {
-        "total_screened": len(papers),
-        "included": len(included),
-        "excluded": len(excluded),
-        "maybe": len(maybe),
-        "excluded_no_required_keyword": excluded_no_required,
-    }
-    save_state(state, config.state_file)
+    except (RunActiveError, ValueError) as exc:
+        print(f"[SCREEN] {exc}")
+        return
 
     print(f"[SCREEN] Done!")
-    print(f"  Included: {len(included)}")
-    print(f"  Excluded: {len(excluded)}")
-    if excluded_no_required:
-        print(f"    (of which {excluded_no_required} by required-keyword rule)")
-    print(f"  Maybe (needs review): {len(maybe)}")
+    print(f"  Included: {result['included']}")
+    print(f"  Excluded: {result['excluded']}")
+    if result["excluded_no_required_keyword"]:
+        print(f"    (of which {result['excluded_no_required_keyword']} by required-keyword rule)")
+    print(f"  Maybe (needs review): {result['maybe']}")
+    if result["kept_manual"] or result["kept_ai"]:
+        print(f"  Kept {result['kept_manual']} manual and {result['kept_ai']} AI decision(s)")
+    if result["eligibility_dropped"]:
+        print(f"  Dropped {result['eligibility_dropped']} eligibility decision(s) about papers "
+              f"no longer included")
 
 
 def cmd_report(config: Config) -> None:
@@ -125,11 +87,14 @@ def cmd_report(config: Config) -> None:
         return
 
     print("[REPORT] Generating PRISMA flow diagram...")
-    generate_markdown_diagram(state, config.export_dir / "prisma_flow.md")
-    generate_png_diagram(state, config.export_dir / "prisma_flow.png")
+    flow = project_stats(config, state)["flow"]
+    generate_markdown_diagram(flow, config.export_dir / "prisma_flow.md")
+    generate_png_diagram(flow, config.export_dir / "prisma_flow.png")
 
     print(f"  Markdown: {config.export_dir / 'prisma_flow.md'}")
     print(f"  PNG: {config.export_dir / 'prisma_flow.png'}")
+    for note in flow["notes"]:
+        print(f"  [!] {note}")
 
 
 def cmd_export(config: Config) -> None:
@@ -184,10 +149,8 @@ def cmd_download(config: Config) -> None:
     print(f"  Saved to: {pdf_dir}")
 
     # Save download log
-    import json
     log_path = pdf_dir / "_download_log.json"
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump(stats["results"], f, indent=2, ensure_ascii=False)
+    atomic_write_json(log_path, stats["results"], indent=2, ensure_ascii=False)
     print(f"  Log: {log_path}")
 
 
@@ -213,19 +176,36 @@ def cmd_status(config: Config) -> None:
         d = state["dedup"]
         print(f"  DEDUP: {d.get('duplicates_removed', 0)} duplicates removed, {d.get('remaining', 0)} unique")
 
-    if "screen" in state:
-        sc = state["screen"]
+    computed = project_stats(config, state)
+    if computed["screen"]:
+        sc = computed["screen"]
         print(f"  SCREEN: {sc.get('included', 0)} included, {sc.get('excluded', 0)} excluded, {sc.get('maybe', 0)} maybe")
+        if sc.get("excluded_no_required_keyword"):
+            print(f"    (of the excluded, {sc['excluded_no_required_keyword']} by required-keyword rule)")
 
-    if "eligibility" in state:
-        el = state["eligibility"]
+    if computed["eligibility"]:
+        el = computed["eligibility"]
         print(f"  ELIGIBILITY: {el.get('included', 0)} included, {el.get('excluded', 0)} excluded, {el.get('remaining', 0)} remaining")
+
+    flow = computed["flow"]
+    removed = flow["removed_before_screening"]
+    print()
+    print("  PRISMA 2020 flow:")
+    print(f"    Identified: {flow['identified']['total']}")
+    print(f"    Removed before screening: {removed['duplicates']} duplicates, "
+          f"{removed['automation_ineligible']} by automation tools")
+    print(f"    Screened: {flow['screened']} ({flow['screening_excluded']} excluded, "
+          f"{flow['awaiting_screening']} awaiting screening)")
+    print(f"    Sought for retrieval: {flow['sought_for_retrieval']}")
+    print(f"    Assessed for eligibility: {flow['assessed_for_eligibility']} "
+          f"({flow['eligibility_excluded']} excluded, {flow['awaiting_eligibility']} awaiting)")
+    print(f"    Included: {flow['included']}")
 
 
 def cmd_run_all(config: Config) -> None:
     """Run the full pipeline."""
     print("=" * 60)
-    print(f"PRISMA Review Tool — Full Pipeline")
+    print(f"PRISMA Review Tool - Full Pipeline")
     print(f"Project: {config.project_name}")
     print("=" * 60)
 
@@ -247,7 +227,7 @@ def cmd_run_all(config: Config) -> None:
 def main():
     parser = argparse.ArgumentParser(
         prog="prisma-review",
-        description="PRISMA Review Tool — Automated systematic literature review",
+        description="PRISMA Review Tool - Automated systematic literature review",
     )
     parser.add_argument("command", choices=["search", "dedup", "screen-rules", "report", "export", "download", "status", "run-all"],
                         help="Command to run")

@@ -1,20 +1,22 @@
-"""Paper endpoints — screening, eligibility, search, details, export."""
+"""Paper endpoints: screening, eligibility, search, details, export."""
 
 from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from prisma_review.models import Paper, load_papers, save_papers
-from prisma_review.screen import get_by_decision
-from prisma_review.config import Config
-from prisma_review.diagram import load_state, save_state
+from prisma_review.models import Paper
+from prisma_review.pipeline import RunActiveError, StepError
+from prisma_review.screen import apply_eligibility_decisions, apply_screen_decisions, rescreen
+from prisma_review.stats import load_papers_cached, project_stats
+from prisma_review.config import Config, config_version
+from prisma_review.diagram import load_state
 from prisma_review.export import export_csv, export_bibtex, ALL_CSV_FIELDS
 
-from api.deps import get_config, get_file_lock
+from api.deps import get_config
 from api.schemas import ScreenDecision, BatchScreenItem
 
 router = APIRouter(tags=["papers"])
@@ -27,17 +29,17 @@ def _load_filtered_papers(
     decision: str = "all",
     source: str = "all",
 ) -> list[Paper]:
-    """Load papers from the pipeline state, filtered by decision and source."""
-    papers = load_papers(config.screen_dir / "screen_results.json")
+    """Load papers from the pipeline state, filtered by decision and source (read-only)."""
+    papers = load_papers_cached(config.screen_dir / "screen_results.json")
     if not papers:
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
+        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
 
     if decision == "eligible_included":
-        elig_papers = load_papers(config.eligibility_dir / "eligible_included.json")
+        elig_papers = load_papers_cached(config.eligibility_dir / "eligible_included.json")
         elig_ids = {p.id for p in elig_papers}
         papers = [p for p in papers if p.id in elig_ids]
     elif decision == "eligible_excluded":
-        elig_papers = load_papers(config.eligibility_dir / "eligible_excluded.json")
+        elig_papers = load_papers_cached(config.eligibility_dir / "eligible_excluded.json")
         elig_ids = {p.id for p in elig_papers}
         papers = [p for p in papers if p.id in elig_ids]
     elif decision != "all":
@@ -53,15 +55,22 @@ def _load_filtered_papers(
 
 @router.get("/stats")
 def get_stats(config: Config = Depends(get_config)):
+    """Counts per stage, the screen breakdown by method, and the PRISMA 2020 ``flow``.
+
+    The screen and eligibility numbers are computed from the result files,
+    so they stay right whichever process (web app, MCP server, CLI) wrote them.
+    """
     state = load_state(config.state_file)
     if not state:
         return {"error": "No pipeline state found. Run the pipeline first."}
+    computed = project_stats(config, state)
     return {
         "project": config.project_name,
         "search": state.get("search", {}),
         "dedup": state.get("dedup", {}),
-        "screen": state.get("screen", {}),
-        "eligibility": state.get("eligibility", {}),
+        "screen": computed["screen"],
+        "eligibility": computed["eligibility"],
+        "flow": computed["flow"],
     }
 
 
@@ -166,65 +175,23 @@ def export_papers(
 def rescreen_papers(
     min_include_hits: int = Query(2, ge=1, le=10),
     config: Config = Depends(get_config),
-    lock=Depends(get_file_lock),
 ):
     """Re-run keyword screening on existing deduplicated papers with a new threshold.
 
-    Does NOT re-search or re-deduplicate — only re-applies screening rules.
+    Does NOT re-search or re-deduplicate: only re-applies screening rules.
+    Keeps manual and AI decisions, drops eligibility decisions about papers
+    no longer included, and saves the threshold in config.yaml (the response
+    has the new ``config_version``). 409 while a pipeline runs on the project.
     """
-    from prisma_review.screen import screen_by_rules, get_by_decision, count_excluded_by_required
-
-    papers = load_papers(config.dedup_dir / "deduplicated.json")
-    if not papers:
-        return {"error": "No deduplicated papers found. Run the pipeline first."}
-
-    # Reset all rule-based decisions (keep manual decisions)
-    for p in papers:
-        if p.screen_method != "manual":
-            p.screen_decision = None
-            p.screen_reason = None
-            p.screen_method = None
-
-    papers = screen_by_rules(
-        papers, config.include_keywords, config.exclude_keywords,
-        min_include_hits, config.required_keywords,
-    )
-    included = get_by_decision(papers, "include")
-    excluded = get_by_decision(papers, "exclude")
-    maybe = get_by_decision(papers, "maybe")
-    excluded_no_required = count_excluded_by_required(excluded)
-
-    with lock:
-        save_papers(papers, config.screen_dir / "screen_results.json")
-        save_papers(included, config.screen_dir / "included.json")
-        save_papers(excluded, config.screen_dir / "excluded.json")
-        save_papers(maybe, config.screen_dir / "maybe.json")
-
-        # Clear stale eligibility data — included papers have changed
-        for elig_file in ["eligibility_results.json", "eligible_included.json", "eligible_excluded.json"]:
-            elig_path = config.eligibility_dir / elig_file
-            if elig_path.exists():
-                save_papers([], elig_path)
-
-        state = load_state(config.state_file)
-        state["screen"] = {
-            "total_screened": len(papers),
-            "included": len(included),
-            "excluded": len(excluded),
-            "maybe": len(maybe),
-            "excluded_no_required_keyword": excluded_no_required,
-        }
-        state.pop("eligibility", None)
-        save_state(state, config.state_file)
-
-    return {
-        "status": "ok",
-        "min_include_hits": min_include_hits,
-        "excluded_no_required_keyword": excluded_no_required,
-        "included": len(included),
-        "excluded": len(excluded),
-        "maybe": len(maybe),
-    }
+    try:
+        result = rescreen(config, min_include_hits)
+    except RunActiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except StepError as exc:
+        return {"error": str(exc)}
+    if config.config_path is not None:
+        result["config_version"] = config_version(config.config_path)
+    return result
 
 
 # ── First-pass screening ─────────────────────────────────────────────────────
@@ -236,12 +203,12 @@ def get_papers_to_screen(
     config: Config = Depends(get_config),
 ):
     if filter_type == "maybe":
-        papers = load_papers(config.screen_dir / "maybe.json")
+        papers = load_papers_cached(config.screen_dir / "maybe.json")
     elif filter_type == "unscreened":
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
+        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
         papers = [p for p in papers if p.screen_decision is None]
     else:
-        papers = load_papers(config.screen_dir / "screen_results.json")
+        papers = load_papers_cached(config.screen_dir / "screen_results.json")
 
     batch = papers[:batch_size]
     return {
@@ -270,45 +237,17 @@ def screen_paper(
     paper_id: str,
     body: ScreenDecision,
     config: Config = Depends(get_config),
-    lock=Depends(get_file_lock),
 ):
-    with lock:
-        all_papers = load_papers(config.screen_dir / "screen_results.json")
-
-        found = False
-        for p in all_papers:
-            if p.id == paper_id:
-                p.screen_decision = body.decision
-                p.screen_reason = body.reason
-                p.screen_method = "manual"
-                found = True
-                break
-
-        if not found:
-            return {"error": f"Paper '{paper_id}' not found."}
-
-        save_papers(all_papers, config.screen_dir / "screen_results.json")
-        included = get_by_decision(all_papers, "include")
-        excluded = get_by_decision(all_papers, "exclude")
-        maybe = get_by_decision(all_papers, "maybe")
-        save_papers(included, config.screen_dir / "included.json")
-        save_papers(excluded, config.screen_dir / "excluded.json")
-        save_papers(maybe, config.screen_dir / "maybe.json")
-
-        state = load_state(config.state_file)
-        state["screen"] = {
-            "total_screened": len(all_papers),
-            "included": len(included),
-            "excluded": len(excluded),
-            "maybe": len(maybe),
-        }
-        save_state(state, config.state_file)
+    results, summary = apply_screen_decisions(
+        config, [{"paper_id": paper_id, "decision": body.decision, "reason": body.reason}], "manual")
+    if results[0]["status"] != "ok":
+        return {"error": f"Paper '{paper_id}' not found."}
 
     return {
         "status": "ok",
         "paper_id": paper_id,
         "decision": body.decision,
-        "remaining_maybe": len(maybe),
+        "remaining_maybe": summary["maybe"],
     }
 
 
@@ -316,40 +255,9 @@ def screen_paper(
 def batch_screen(
     items: list[BatchScreenItem],
     config: Config = Depends(get_config),
-    lock=Depends(get_file_lock),
 ):
-    with lock:
-        all_papers = load_papers(config.screen_dir / "screen_results.json")
-        paper_map = {p.id: p for p in all_papers}
-
-        results = []
-        for item in items:
-            if item.paper_id not in paper_map:
-                results.append({"paper_id": item.paper_id, "status": "error", "message": "not found"})
-                continue
-            paper_map[item.paper_id].screen_decision = item.decision
-            paper_map[item.paper_id].screen_reason = item.reason
-            paper_map[item.paper_id].screen_method = "manual"
-            results.append({"paper_id": item.paper_id, "status": "ok", "decision": item.decision})
-
-        save_papers(all_papers, config.screen_dir / "screen_results.json")
-        included = get_by_decision(all_papers, "include")
-        excluded = get_by_decision(all_papers, "exclude")
-        maybe = get_by_decision(all_papers, "maybe")
-        save_papers(included, config.screen_dir / "included.json")
-        save_papers(excluded, config.screen_dir / "excluded.json")
-        save_papers(maybe, config.screen_dir / "maybe.json")
-
-        state = load_state(config.state_file)
-        state["screen"] = {
-            "total_screened": len(all_papers),
-            "included": len(included),
-            "excluded": len(excluded),
-            "maybe": len(maybe),
-        }
-        save_state(state, config.state_file)
-
-    return {"processed": len(results), "remaining_maybe": len(maybe), "results": results}
+    results, summary = apply_screen_decisions(config, [item.model_dump() for item in items], "manual")
+    return {"processed": len(results), "remaining_maybe": summary["maybe"], "results": results}
 
 
 # ── Eligibility (second pass) ────────────────────────────────────────────────
@@ -359,8 +267,8 @@ def get_papers_for_eligibility(
     batch_size: int = Query(20, ge=1, le=200),
     config: Config = Depends(get_config),
 ):
-    papers = load_papers(config.screen_dir / "included.json")
-    elig_results = load_papers(config.eligibility_dir / "eligibility_results.json")
+    papers = load_papers_cached(config.screen_dir / "included.json")
+    elig_results = load_papers_cached(config.eligibility_dir / "eligibility_results.json")
     screened_ids = {p.id for p in elig_results if p.eligibility_decision is not None}
 
     unscreened = [p for p in papers if p.id not in screened_ids]
@@ -394,89 +302,23 @@ def eligibility_screen(
     paper_id: str,
     body: ScreenDecision,
     config: Config = Depends(get_config),
-    lock=Depends(get_file_lock),
 ):
-    with lock:
-        all_papers = load_papers(config.screen_dir / "included.json")
-        elig_path = config.eligibility_dir / "eligibility_results.json"
-        elig_results = load_papers(elig_path)
-        elig_map = {p.id: p for p in elig_results}
-
-        found = False
-        for p in all_papers:
-            if p.id == paper_id:
-                p.eligibility_decision = body.decision
-                p.eligibility_reason = body.reason
-                p.eligibility_method = "manual"
-                elig_map[p.id] = p
-                found = True
-                break
-
-        if not found:
-            return {"error": f"Paper '{paper_id}' not found."}
-
-        all_elig = list(elig_map.values())
-        save_papers(all_elig, elig_path)
-        elig_included = [p for p in all_elig if p.eligibility_decision == "include"]
-        elig_excluded = [p for p in all_elig if p.eligibility_decision == "exclude"]
-        save_papers(elig_included, config.eligibility_dir / "eligible_included.json")
-        save_papers(elig_excluded, config.eligibility_dir / "eligible_excluded.json")
-
-        state = load_state(config.state_file)
-        state["eligibility"] = {
-            "input_from_screening": len(all_papers),
-            "screened": len(all_elig),
-            "included": len(elig_included),
-            "excluded": len(elig_excluded),
-            "remaining": len(all_papers) - len(all_elig),
-        }
-        save_state(state, config.state_file)
-
-    return {"status": "ok", "paper_id": paper_id, "decision": body.decision, "remaining": len(all_papers) - len(all_elig)}
+    results, summary = apply_eligibility_decisions(
+        config, [{"paper_id": paper_id, "decision": body.decision, "reason": body.reason}], "manual")
+    if results[0]["status"] != "ok":
+        return {"error": f"Paper '{paper_id}' not found."}
+    return {"status": "ok", "paper_id": paper_id, "decision": body.decision,
+            "remaining": summary["remaining"]}
 
 
 @router.post("/papers/eligibility/batch")
 def batch_eligibility(
     items: list[BatchScreenItem],
     config: Config = Depends(get_config),
-    lock=Depends(get_file_lock),
 ):
-    with lock:
-        all_papers = load_papers(config.screen_dir / "included.json")
-        paper_map = {p.id: p for p in all_papers}
-        elig_path = config.eligibility_dir / "eligibility_results.json"
-        elig_results = load_papers(elig_path)
-        elig_map = {p.id: p for p in elig_results}
-
-        results = []
-        for item in items:
-            if item.paper_id not in paper_map:
-                results.append({"paper_id": item.paper_id, "status": "error", "message": "not found"})
-                continue
-            paper_map[item.paper_id].eligibility_decision = item.decision
-            paper_map[item.paper_id].eligibility_reason = item.reason
-            paper_map[item.paper_id].eligibility_method = "manual"
-            elig_map[item.paper_id] = paper_map[item.paper_id]
-            results.append({"paper_id": item.paper_id, "status": "ok", "decision": item.decision})
-
-        all_elig = list(elig_map.values())
-        save_papers(all_elig, elig_path)
-        elig_included = [p for p in all_elig if p.eligibility_decision == "include"]
-        elig_excluded = [p for p in all_elig if p.eligibility_decision == "exclude"]
-        save_papers(elig_included, config.eligibility_dir / "eligible_included.json")
-        save_papers(elig_excluded, config.eligibility_dir / "eligible_excluded.json")
-
-        state = load_state(config.state_file)
-        state["eligibility"] = {
-            "input_from_screening": len(all_papers),
-            "screened": len(all_elig),
-            "included": len(elig_included),
-            "excluded": len(elig_excluded),
-            "remaining": len(all_papers) - len(all_elig),
-        }
-        save_state(state, config.state_file)
-
-    return {"processed": len(results), "remaining": len(all_papers) - len(all_elig), "results": results}
+    results, summary = apply_eligibility_decisions(
+        config, [item.model_dump() for item in items], "manual")
+    return {"processed": len(results), "remaining": summary["remaining"], "results": results}
 
 
 # ── Paper details & search ───────────────────────────────────────────────────
@@ -486,9 +328,9 @@ def search_papers(
     q: str = Query(..., min_length=1),
     config: Config = Depends(get_config),
 ):
-    papers = load_papers(config.screen_dir / "screen_results.json")
+    papers = load_papers_cached(config.screen_dir / "screen_results.json")
     if not papers:
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
+        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
 
     query_lower = q.lower()
     matches = [
@@ -509,12 +351,12 @@ def search_papers(
 @router.get("/papers/{paper_id}")
 def get_paper(paper_id: str, config: Config = Depends(get_config)):
     for fname in ["screen_results.json", "included.json", "excluded.json", "maybe.json"]:
-        papers = load_papers(config.screen_dir / fname)
+        papers = load_papers_cached(config.screen_dir / fname)
         for p in papers:
             if p.id == paper_id:
                 return p.to_dict()
 
-    papers = load_papers(config.dedup_dir / "deduplicated.json")
+    papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
     for p in papers:
         if p.id == paper_id:
             return p.to_dict()
