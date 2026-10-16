@@ -20,6 +20,21 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Install, test, build
+
+```bash
+npm ci          # exact versions from package-lock.json
+npm test        # unit tests: Node's built-in runner on tests/*.test.ts, no extra dependencies
+npm run build   # production build, includes the TypeScript check
+```
+
+The tests cover the logic kept in `src/lib` (SSE client, Settings form helpers, PRISMA flow
+and report export, ISSN handling, API client), source-level accessibility guards and the
+lockfile audit (`tests/lockfile-check.ts`: lockfile in sync with package.json, every tarball
+from registry.npmjs.org, no unreviewed install scripts).
+
+Point the app at another API with `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`).
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
