@@ -5,7 +5,7 @@
 #   cp config.template.yaml config.yaml
 #
 # STEP 1: Name your project
-# STEP 2: Add API keys (optional — arXiv, Crossref, OpenAlex, Semantic Scholar are free)
+# STEP 2: Add API keys (an OpenAlex key is free and strongly recommended)
 # STEP 3: Define your search queries (use Boolean AND/OR operators)
 # STEP 4: Set your inclusion/exclusion keywords for screening
 # ============================================================
@@ -20,7 +20,11 @@ api_keys:
   # Requires institutional access (university VPN or IP range)
   # Usage must comply with Elsevier API Service Agreement (academic research only)
   scopus: ""
-  openalex_email: ""      # Your email for faster OpenAlex responses (free, recommended)
+  # OpenAlex: free key from your account at https://openalex.org. Without it
+  # OpenAlex only returns the first page of results, so every query stops at
+  # 50 records.
+  openalex_key: ""
+  openalex_email: ""      # Optional contact email sent to OpenAlex
 
 # --- Search Configuration ---
 search:
@@ -30,15 +34,16 @@ search:
 
   max_results_per_query: 500  # Max papers per query per source (safety cap)
 
-  # Which databases to search (comment out to disable)
-  # NOTE: Crossref and OpenAlex are the most reliable. arXiv and Semantic Scholar have
+  # Which databases to search (uncomment to enable)
+  # NOTE: OpenAlex is the most reliable. arXiv and Semantic Scholar have
   # aggressive rate limits that cause slow searches and 0-result failures.
-  # Recommend: crossref + openalex; add arxiv/semantic_scholar if you need more results.
+  # Crossref ranks by relevance only (no Boolean logic), so a query returns
+  # many off-topic records. Start with openalex and add others if needed.
   sources:
-    - arxiv               # Free, but rate-limits aggressively (HTTP 429)
-    - crossref            # Free, 150M+ records, canonical DOI source (recommended)
-    - openalex            # Free, 250M+ papers, most reliable (recommended)
-    - semantic_scholar    # Free, but rate-limits heavily (often returns 0)
+    - openalex            # Free, 250M+ papers, most reliable (recommended; add openalex_key)
+    # - crossref          # Free, 150M+ records, relevance-ranked: expect off-topic results
+    # - arxiv             # Free, but rate-limits aggressively (HTTP 429)
+    # - semantic_scholar  # Free, but rate-limits heavily (often returns 0)
     # - scopus            # Needs API key, best metadata quality
 
   # --- Source-side filters (optional; all empty/false = no filtering) ---
@@ -86,7 +91,13 @@ screening:
     exclude_keywords:             # Papers matching ANY of these are auto-excluded
       - irrelevant topic 1
       - irrelevant topic 2
-    min_include_hits: 2           # How many include keywords must match
+    min_include_hits: 2           # How many include keywords must match (1-10)
+    # Optional gate: when set, a paper is auto-excluded unless its title or
+    # abstract contains at least one of these terms. Leave commented out (or
+    # empty) to disable it.
+    # required_keywords:
+    #   - core term 1
+    #   - core term 2
 
 # --- Eligibility Screening (Second Pass) ---
 # When first-pass screening yields too many papers, use the MCP tools
