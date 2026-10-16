@@ -15,3 +15,4 @@ server_err.txt
 /projects/
 # Cross-process lock files (prisma_review/storage.py)
 .prisma.lock
+.pytest_cache/
