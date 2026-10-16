@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 from pathlib import Path
 
 from fastapi import HTTPException
-from prisma_review.config import Config
+
+from prisma_review import workspace
+from prisma_review.config import Config, ConfigError
 
 _config: Config | None = None
-# Fingerprint of the config currently loaded into _config: (path, mtime_ns).
+# Fingerprint of the config currently loaded into _config: (path, mtime_ns, size).
 # Lets get_config() detect when another process (e.g. the MCP server) switched
-# the active project or rewrote the config on disk, and reload accordingly.
-_config_source: tuple[str, int] | None = None
+# the active project or rewrote the config on disk, and reload accordingly. It
+# is taken BEFORE loading, so a write landing mid-load causes one more reload.
+_config_source: tuple[str, int, int] | None = None
 _file_lock = threading.Lock()
 
 # Lazy-initialised session manager (needs _file_lock)
@@ -20,54 +24,76 @@ _session_manager = None
 
 
 def get_projects_dir() -> Path:
-    """Return the projects/ directory (sibling of api/)."""
-    return Path(__file__).parent.parent / "projects"
+    """Return the projects/ directory of the workspace."""
+    return workspace.projects_dir()
 
 
-def _active_config_path() -> Path:
-    """Resolve the active project's config.yaml from disk, fresh every call.
+def http_error(exc: workspace.WorkspaceError) -> HTTPException:
+    """Map a project resolution error to an HTTP error with its message."""
+    if isinstance(exc, workspace.InvalidProjectName):
+        status = 400
+    elif isinstance(exc, workspace.ProjectNotFound):
+        status = 404
+    else:  # stale marker, missing config, pinned config, project exists
+        status = 409
+    return HTTPException(status_code=status, detail=str(exc))
 
-    Mirrors how the Projects/Settings routes read `.active_project`, so the API
-    follows project switches made by any process (including the MCP server).
+
+def active_config_path() -> Path:
+    """The config.yaml in use (PRISMA_CONFIG, else the active project, else root).
+
+    Raises 409 when the active-project marker is invalid or names a missing
+    project, instead of silently falling back to another config.
     """
-    projects_dir = get_projects_dir()
-    active_file = projects_dir / ".active_project"
-    if active_file.exists():
-        name = active_file.read_text(encoding="utf-8").strip()
-        candidate = projects_dir / name / "config.yaml"
-        if candidate.exists():
-            return candidate
-    return Path(__file__).parent.parent / "config.yaml"
-
-
-def _source_of(path: Path) -> tuple[str, int]:
     try:
-        mtime = path.stat().st_mtime_ns
+        return workspace.resolve_config_path()
+    except workspace.WorkspaceError as exc:
+        raise http_error(exc) from exc
+
+
+def _source_of(path: Path) -> tuple[str, int, int] | None:
+    try:
+        st = path.stat()
     except OSError:
-        mtime = 0
-    return (str(path), mtime)
+        return None
+    return (str(path), st.st_mtime_ns, st.st_size)
 
 
 def init_config(config_path: Path | None = None) -> None:
     """Load config into the global cache. Called at app startup and on writes."""
     global _config, _config_source
     if config_path is None:
-        config_path = _active_config_path()
+        config_path = active_config_path()
+    source = _source_of(config_path)
     _config = Config.load(config_path)
-    _config_source = _source_of(config_path)
+    _config_source = source
 
 
 def get_config() -> Config:
     """Get the active config as a FastAPI dependency.
 
-    Re-resolves `.active_project` and the config file's mtime on every call and
-    reloads if either changed, so screens reflect project switches / config
-    edits made out-of-process (notably via the MCP server) without a restart.
+    Re-resolves the active project and the config file's fingerprint on every
+    call and reloads if either changed, so screens reflect project switches /
+    config edits made out-of-process (notably via the MCP server) without a
+    restart. If the file on disk is unreadable or not a mapping (an editor
+    saving it non-atomically), the last good config of that file stays in use.
     """
-    path = _active_config_path()
-    if _config is None or _config_source != _source_of(path):
-        init_config(path)
-    return _config
+    global _config, _config_source
+    path = active_config_path()
+    source = _source_of(path)
+    if source is None:
+        raise HTTPException(status_code=409, detail=f"Config file not found: {path}")
+    if _config is not None and _config_source == source:
+        return _config
+    try:
+        config = Config.load(path)
+    except (ConfigError, OSError) as exc:
+        if _config is not None and _config.config_path == path:
+            print(f"Warning: keeping the previous config, {exc}", file=sys.stderr)
+            return _config
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    _config, _config_source = config, source
+    return config
 
 
 def get_file_lock() -> threading.Lock:
@@ -85,18 +111,30 @@ def get_session_manager():
     return _session_manager
 
 
-def switch_project(name: str) -> None:
-    """Switch the active project. Raises if pipeline is running."""
-    global _session_manager
-    sm = get_session_manager()
-    if sm.is_running:
-        raise HTTPException(status_code=409, detail="Cannot switch while pipeline is running")
+def pipeline_running() -> bool:
+    """True if this process is running a pipeline (without creating a manager)."""
+    return _session_manager is not None and _session_manager.is_running
 
-    projects_dir = get_projects_dir()
-    config_path = projects_dir / name / "config.yaml"
-    if not config_path.exists():
-        raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
 
-    init_config(config_path)
+def reset_project_caches() -> None:
+    """Forget the cached config and session manager (after a project switch or delete)."""
+    global _config, _config_source, _session_manager
+    _config = None
+    _config_source = None
     _session_manager = None
-    (projects_dir / ".active_project").write_text(name, encoding="utf-8")
+
+
+def switch_project(name: str) -> None:
+    """Switch the active project. Raises if the name is invalid or a pipeline is running."""
+    try:
+        workspace.validate_project_name(name)
+        workspace.ensure_not_pinned()
+    except workspace.WorkspaceError as exc:
+        raise http_error(exc) from exc
+    if pipeline_running():
+        raise HTTPException(status_code=409, detail="Cannot switch while pipeline is running")
+    try:
+        workspace.set_active_project(name)
+    except workspace.WorkspaceError as exc:
+        raise http_error(exc) from exc
+    reset_project_caches()

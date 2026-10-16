@@ -13,3 +13,5 @@ __pycache__/
 *.egg-info/
 server_err.txt
 /projects/
+# Cross-process lock files (prisma_review/storage.py)
+.prisma.lock
