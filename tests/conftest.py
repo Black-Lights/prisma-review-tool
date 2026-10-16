@@ -168,8 +168,12 @@ def workspace(bare_workspace) -> Workspace:
 
 
 @pytest.fixture
-def mcp_server(workspace):
-    """The MCP server module with its per-process caches reset; tools act on ``workspace``."""
+def mcp_server(bare_workspace):
+    """The MCP server module with its per-process caches reset.
+
+    Tools act on the temp workspace; request ``workspace`` too for the ready
+    "alpha" project, or use ``bare_workspace`` to build another layout.
+    """
     import mcp_server.server as server
 
     server._session_manager = None

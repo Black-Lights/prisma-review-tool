@@ -1,5 +1,5 @@
 """Allow running as: python -m mcp_server"""
 
-from .server import mcp
+from .server import main
 
-mcp.run()
+main()
