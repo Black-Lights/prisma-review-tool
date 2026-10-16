@@ -2,26 +2,27 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 
+from .storage import atomic_write_json, read_json
+
 
 def load_state(state_file: Path) -> dict:
     """Load review state from JSON file."""
-    if not state_file.exists():
-        return {}
-    with open(state_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+    state = read_json(state_file, default={}, recover_trailing_data=True)
+    return state if isinstance(state, dict) else {}
 
 
 def save_state(state: dict, state_file: Path) -> None:
-    """Save review state to JSON file."""
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    """Save review state to JSON file (atomically).
+
+    For a read-modify-write use ``storage.update_state``, which also holds the
+    project lock so concurrent writers do not drop each other's changes.
+    """
+    atomic_write_json(state_file, state, indent=2)
 
 
 def generate_markdown_diagram(state: dict, path: Path) -> None:

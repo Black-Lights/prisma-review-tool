@@ -5,8 +5,9 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field, asdict
 from typing import Optional
-import json
 from pathlib import Path
+
+from .storage import atomic_write_json, read_json
 
 
 @dataclass
@@ -83,13 +84,9 @@ class Paper:
 
 
 def save_papers(papers: list[Paper], path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump([p.to_dict() for p in papers], f, indent=2, ensure_ascii=False)
+    # Atomic: a reader in another process never sees a half-written file.
+    atomic_write_json(path, [p.to_dict() for p in papers], indent=2, ensure_ascii=False)
 
 
 def load_papers(path: Path) -> list[Paper]:
-    if not path.exists():
-        return []
-    with open(path, "r", encoding="utf-8") as f:
-        return [Paper.from_dict(d) for d in json.load(f)]
+    return [Paper.from_dict(d) for d in read_json(path, default=[])]
