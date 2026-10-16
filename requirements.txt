@@ -13,5 +13,8 @@ rapidfuzz>=3.0.0
 # Diagram
 matplotlib>=3.7.0
 
-# MCP Server
-mcp>=1.0.0
+# Safe concurrent writes (web API and MCP server share the same files)
+filelock>=3.12
+
+# MCP Server (mcp 2.x removed mcp.server.fastmcp, which the server is built on)
+mcp>=1.19,<2
