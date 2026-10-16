@@ -17,7 +17,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from prisma_review import workspace
-from prisma_review.config import ConfigError, load_raw_config, save_raw_config
+from prisma_review.config import Config, ConfigError, load_raw_config, save_raw_config
+from prisma_review.pipeline import active_run
 from prisma_review.storage import LOCK_FILENAME, atomic_write_json, read_json
 from api.deps import (
     get_projects_dir, http_error, pipeline_running, reset_project_caches, switch_project,
@@ -53,6 +54,14 @@ def _require_active_project() -> str:
     if not name:
         raise HTTPException(status_code=404, detail="No active project")
     return name
+
+
+def _state_file(project_dir: Path) -> Path:
+    """The project's review_state.json (its config may move output_dir)."""
+    try:
+        return Config.load(project_dir / "config.yaml").state_file
+    except (OSError, ConfigError):
+        return project_dir / "prisma_output" / "review_state.json"
 
 
 def _display_name(project_dir: Path) -> str:
@@ -152,8 +161,10 @@ def delete_project(name: str):
         raise HTTPException(status_code=404, detail=f"Project '{name}' not found")
 
     active, _ = _active_project()
-    if name == active and pipeline_running():
-        raise HTTPException(status_code=409, detail="Cannot delete the active project while its pipeline is running")
+    # A run in this process, or one recorded on disk by another process (the
+    # MCP server may work on this project even when it is not the active one).
+    if (name == active and pipeline_running()) or active_run(_state_file(project_dir)) is not None:
+        raise HTTPException(status_code=409, detail="Cannot delete a project while its pipeline is running")
     shutil.rmtree(project_dir)
 
     # If we deleted the active project, switch to another or clear

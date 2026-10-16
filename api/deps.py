@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import sys
-import threading
 from pathlib import Path
 
 from fastapi import HTTPException
 
-from prisma_review import workspace
+from prisma_review import pipeline, workspace
 from prisma_review.config import Config, ConfigError
 
 _config: Config | None = None
@@ -17,9 +16,9 @@ _config: Config | None = None
 # the active project or rewrote the config on disk, and reload accordingly. It
 # is taken BEFORE loading, so a write landing mid-load causes one more reload.
 _config_source: tuple[str, int, int] | None = None
-_file_lock = threading.Lock()
 
-# Lazy-initialised session manager (needs _file_lock)
+# Lazy-initialised session manager. File writes are serialised with other
+# processes through prisma_review.storage.project_lock, not a lock held here.
 _session_manager = None
 
 
@@ -96,24 +95,35 @@ def get_config() -> Config:
     return config
 
 
-def get_file_lock() -> threading.Lock:
-    """Get the file lock for thread-safe JSON writes."""
-    return _file_lock
-
-
 def get_session_manager():
     """Get the singleton SessionManager instance."""
     global _session_manager
     if _session_manager is None:
         from api.session import SessionManager
         config = get_config()
-        _session_manager = SessionManager(_file_lock, state_file=config.state_file)
+        _session_manager = SessionManager(state_file=config.state_file)
     return _session_manager
 
 
 def pipeline_running() -> bool:
     """True if this process is running a pipeline (without creating a manager)."""
     return _session_manager is not None and _session_manager.is_running
+
+
+def project_run_active(state_file: Path | None) -> bool:
+    """True if this process runs a pipeline, or ``state_file`` records a live run
+    owned by another process (e.g. the MCP server)."""
+    if pipeline_running():
+        return True
+    return state_file is not None and pipeline.active_run(state_file) is not None
+
+
+def _active_state_file() -> Path | None:
+    """The active project's review_state.json, or None when no config is usable."""
+    try:
+        return get_config().state_file
+    except HTTPException:
+        return None
 
 
 def reset_project_caches() -> None:
@@ -131,7 +141,7 @@ def switch_project(name: str) -> None:
         workspace.ensure_not_pinned()
     except workspace.WorkspaceError as exc:
         raise http_error(exc) from exc
-    if pipeline_running():
+    if project_run_active(_active_state_file()):
         raise HTTPException(status_code=409, detail="Cannot switch while pipeline is running")
     try:
         workspace.set_active_project(name)
