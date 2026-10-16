@@ -1,7 +1,8 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Circle, Play, Square } from "lucide-react";
+import Link from "next/link";
+import { AlertTriangle, CheckCircle2, Circle, Play } from "lucide-react";
 import StatCard from "@/components/StatCard";
 import GlassCard from "@/components/GlassCard";
 import PipelineProgress from "@/components/PipelineProgress";
@@ -11,7 +12,7 @@ import {
   startPipeline,
   fetchPipelineProgress,
   fetchActiveProject,
-  PipelineStatusType,
+  fetchConfigReadiness,
 } from "@/lib/api";
 import Modal from "@/components/Modal";
 import { useState, useCallback } from "react";
@@ -24,12 +25,11 @@ const PIPELINE_STEPS = [
   { key: "export", label: "Export & Download", statPath: null },
 ] as const;
 
-function getNestedValue(obj: any, path: string | null): number | null {
+function getNestedValue(obj: unknown, path: string | null): number | null {
   if (!path || !obj) return null;
-  const keys = path.split(".");
-  let val = obj;
-  for (const k of keys) {
-    val = val?.[k];
+  let val: unknown = obj;
+  for (const k of path.split(".")) {
+    val = val && typeof val === "object" ? (val as Record<string, unknown>)[k] : undefined;
   }
   return typeof val === "number" ? val : null;
 }
@@ -37,6 +37,7 @@ function getNestedValue(obj: any, path: string | null): number | null {
 export default function DashboardPage() {
   const queryClient = useQueryClient();
   const [showRunAllModal, setShowRunAllModal] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const { data: activeProject } = useQuery({
     queryKey: ["active-project"],
@@ -51,6 +52,14 @@ export default function DashboardPage() {
 
   const isPipelineRunning = progress?.status === "running";
 
+  // Things that do not block a run but change its results (e.g. OpenAlex
+  // without an API key can cut a large search short).
+  const { data: readiness } = useQuery({
+    queryKey: ["config-readiness"],
+    queryFn: fetchConfigReadiness,
+  });
+  const runNotes = [...(readiness?.problems ?? []), ...(readiness?.warnings ?? [])];
+
   const { data: stats, isLoading } = useQuery({
     queryKey: ["stats"],
     queryFn: fetchStats,
@@ -60,7 +69,6 @@ export default function DashboardPage() {
 
   // When pipeline is running, show "--" for stats of steps not yet completed
   const stepsCompleted = progress?.completed_steps ?? [];
-  const pipelineActive = isPipelineRunning || progress?.status === "completed" || progress?.status === "failed" || progress?.status === "cancelled";
 
   const recordsFound = isPipelineRunning && !stepsCompleted.includes("search")
     ? "--" : (stats?.search?.total ?? 0);
@@ -80,21 +88,20 @@ export default function DashboardPage() {
   };
 
   const executeRunAll = async () => {
+    setRunError(null);
     try {
       await startPipeline();
-      // Kick off polling immediately
-      queryClient.invalidateQueries({ queryKey: ["pipeline-progress"] });
-    } catch {
-      // 409 = already running, ignore
+    } catch (err) {
+      // e.g. 409 "already running" (another tab or the MCP server started it)
+      setRunError(err instanceof Error ? err.message : String(err));
     }
+    // Kick off polling immediately
+    queryClient.invalidateQueries({ queryKey: ["pipeline-progress"] });
   };
 
-  const handlePipelineFinished = useCallback(
-    (status: PipelineStatusType) => {
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    },
-    [queryClient]
-  );
+  const handlePipelineFinished = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["stats"] });
+  }, [queryClient]);
 
   // Determine which step is currently active (for stepper highlighting)
   const activeStep = isPipelineRunning ? progress?.current_step : null;
@@ -191,8 +198,23 @@ export default function DashboardPage() {
             {/* Pipeline progress bar (shows when running or just finished) */}
             <PipelineProgress onFinished={handlePipelineFinished} />
 
+            {runNotes.length > 0 && !isPipelineRunning && (
+              <div className="mt-2 rounded-lg border border-accent-amber/30 bg-accent-amber/5 p-3 space-y-1">
+                {runNotes.map((note, i) => (
+                  <p key={i} className="text-xs text-accent-amber flex items-start gap-1.5">
+                    <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                    <span>{note}</span>
+                  </p>
+                ))}
+                <Link href="/settings" className="inline-block text-xs text-primary hover:underline">
+                  Open Settings
+                </Link>
+              </div>
+            )}
+
             {/* Run All / disabled button */}
             <button
+              type="button"
               data-tutorial="run-all"
               onClick={handleRunAllClick}
               disabled={isPipelineRunning}
@@ -205,6 +227,11 @@ export default function DashboardPage() {
               <Play size={16} />
               {isPipelineRunning ? "Pipeline Running..." : "Run All"}
             </button>
+            {runError && (
+              <p role="alert" className="text-xs text-accent-red mt-1">
+                Could not start the pipeline: {runError}
+              </p>
+            )}
           </GlassCard>
         </div>
       </div>

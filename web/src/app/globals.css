@@ -16,6 +16,8 @@
   --color-accent-amber: #fbbf24;
   --color-accent-red: #f87171;
   --color-accent-purple: #c084fc;
+  /* Source badge only: a hue apart from primary (OpenAlex) and the accents. */
+  --color-source-crossref: #a3e635;
   --font-display: "DM Sans", system-ui, sans-serif;
   --font-body: "DM Sans", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;

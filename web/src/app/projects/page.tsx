@@ -14,9 +14,11 @@ import {
   Database,
   Filter,
   CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import GlassCard from "@/components/GlassCard";
 import Modal from "@/components/Modal";
+import { useWorkspaceAlert } from "@/app/providers";
 import {
   fetchProjects,
   createProject,
@@ -31,6 +33,8 @@ import {
 export default function ProjectsPage() {
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const workspaceAlert = useWorkspaceAlert();
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -47,8 +51,19 @@ export default function ProjectsPage() {
 
   const invalidateAll = () => {
     // Invalidate everything so all pages reflect the new project
+    setActionError(null);
     queryClient.invalidateQueries();
   };
+
+  // The active project may have changed: drop every cached answer of the
+  // previous one instead of showing it until the refetch lands.
+  const resetAll = () => {
+    setActionError(null);
+    workspaceAlert.clear();
+    queryClient.resetQueries();
+  };
+
+  const showError = (err: Error) => setActionError(err.message);
 
   const createMutation = useMutation({
     mutationFn: (name: string) => createProject(name),
@@ -57,17 +72,23 @@ export default function ProjectsPage() {
       setShowCreateModal(false);
       setNewProjectName("");
     },
+    onError: showError,
   });
 
   const switchMutation = useMutation({
     mutationFn: (name: string) => switchProject(name),
-    onSuccess: invalidateAll,
+    onSuccess: resetAll,
+    onError: showError,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (name: string) => deleteProject(name),
     onSuccess: () => {
-      invalidateAll();
+      resetAll();
+      setDeleteTarget(null);
+    },
+    onError: (err: Error) => {
+      showError(err);
       setDeleteTarget(null);
     },
   });
@@ -80,10 +101,17 @@ export default function ProjectsPage() {
       setDuplicateTarget(null);
       setDuplicateName("");
     },
+    onError: showError,
   });
 
   const handleExport = async (name: string) => {
-    const blob = await exportProject(name);
+    let blob: Blob;
+    try {
+      blob = await exportProject(name);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -95,8 +123,12 @@ export default function ProjectsPage() {
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    await importProject(file);
-    invalidateAll();
+    try {
+      await importProject(file);
+      invalidateAll();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -136,6 +168,26 @@ export default function ProjectsPage() {
           </button>
         </div>
       </div>
+
+      {data?.active_error && (
+        <div role="alert" className="glass p-4 border-l-4 border-l-accent-amber flex items-start gap-2">
+          <AlertTriangle size={16} className="text-accent-amber shrink-0 mt-0.5" />
+          <div className="text-sm">
+            <p className="font-semibold text-text-primary">The active project setting is not usable</p>
+            <p className="text-text-secondary">{data.active_error}</p>
+            <p className="text-text-muted text-xs mt-1">Switch to one of the projects below to fix it.</p>
+          </div>
+        </div>
+      )}
+
+      {actionError && (
+        <div role="alert" className="glass p-3 border-l-4 border-l-accent-red text-sm text-accent-red flex items-start justify-between gap-3">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="text-text-muted hover:text-text-primary text-xs">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Projects grid */}
       {isLoading ? (

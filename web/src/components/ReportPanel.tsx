@@ -11,17 +11,21 @@ import {
   fetchFilterPlan,
   type FilterMode,
 } from "@/lib/api";
+import { configEditedSince } from "@/lib/configForm";
+import { flowFunnelRows, getFlow, type FunnelRow } from "@/lib/flow";
+import { FILTER_MODE_LABEL, buildReportMarkdown, formatCount } from "@/lib/report";
 
 /**
  * Read-only pipeline report: what came in, what was filtered, and how.
- * Draws entirely from data already exposed by the API (stats funnel, config
- * filters, and the last run's transparency warnings) — no backend changes.
+ * Counts come only from the PRISMA flow computed by the API (stats.flow), so
+ * they match the diagram and the exported reports. Filters and the filter plan
+ * describe the current settings, which can differ from the last run.
  */
 export default function ReportPanel() {
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: fetchStats, staleTime: 30_000 });
   const { data: config } = useQuery({ queryKey: ["config"], queryFn: fetchConfig, staleTime: 30_000 });
   const { data: progress } = useQuery({
-    queryKey: ["pipeline-progress-report"],
+    queryKey: ["pipeline-progress"],
     queryFn: fetchPipelineProgress,
     staleTime: 30_000,
   });
@@ -36,123 +40,65 @@ export default function ReportPanel() {
     staleTime: 30_000,
   });
 
-  const s: any = stats ?? {};
-  const hasData = s && !s.error && s.search && Object.keys(s.search).length > 0;
-
-  const search: Record<string, number> = s.search ?? {};
-  const dedup: Record<string, number> = s.dedup ?? {};
-  const screen: Record<string, number> = s.screen ?? {};
-  const eligibility: Record<string, number> = s.eligibility ?? {};
-
-  const perSource = Object.entries(search).filter(([k]) => k !== "total");
-  const totalFound = search.total ?? perSource.reduce((acc, [, v]) => acc + (v || 0), 0);
-
-  const dupRemoved = dedup.duplicates_removed ?? 0;
-  const afterDedup = dedup.remaining ?? 0;
-
-  const included = screen.included ?? 0;
-  const maybe = screen.maybe ?? 0;
-  const excluded = screen.excluded ?? 0;
-  const excludedGate = screen.excluded_no_required_keyword ?? 0;
-  const excludedByKeyword = Math.max(0, excluded - excludedGate);
+  const flow = getFlow(stats);
+  const hasSearch = !!stats && !stats.error && Object.keys(stats.search ?? {}).length > 0;
+  const hasData = flow !== null || hasSearch;
+  const funnel = flow ? flowFunnelRows(flow) : [];
 
   const filters = config?.search?.filters ?? {};
   const dateRange = config?.search?.date_range ?? {};
-  const minHits = config?.screening?.rules?.min_include_hits ?? 2;
   const warnings: string[] = progress?.warnings ?? [];
 
   const queryRows = byQuery?.queries ?? [];
   const untaggedScreened = byQuery?.untagged?.screened ?? 0;
   const hasQueryData = queryRows.length > 0;
+  const totalIncluded = byQuery?.total_included ?? flow?.sought_for_retrieval ?? 0;
 
   const planSources = filterPlan?.sources ?? [];
   const planRows = filterPlan?.filters ?? [];
   const hasPlanData = !filterPlan?.empty && planRows.length > 0;
 
+  // The settings below are the current ones; flag when they were saved after
+  // the last pipeline run started, so nobody documents filters never applied.
+  const settingsNote = configEditedSince(config?._version, progress?.started_at)
+    ? `Settings were saved after the last pipeline run started (${utcMinute(progress?.started_at)}). ` +
+      "The filters below are the current settings and may not be the ones that produced these counts. Re-run the pipeline to align them."
+    : null;
+
   // request = filtered at the source; post = filtered locally after the call;
   // unsupported = the source can't express it, so it's ignored there.
-  const modeLabel: Record<FilterMode, string> = {
-    request: "At source",
-    post: "After call",
-    unsupported: "Ignored",
-  };
   const modeClass: Record<FilterMode, string> = {
     request: "text-accent-green",
     post: "text-accent-amber",
     unsupported: "text-text-muted",
   };
 
-  const fmt = (n: number) => (n ?? 0).toLocaleString();
-  const valueOf = (v: any): string => {
-    if (Array.isArray(v)) return v.length ? v.join(", ") : "—";
+  const valueOf = (v: unknown): string => {
+    if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
     if (typeof v === "boolean") return v ? "on" : "off";
-    return v ? String(v) : "—";
+    return v ? String(v) : "none";
   };
 
   const filterRows: [string, string][] = [
-    ["Date range", `${dateRange.start ?? "?"} → ${dateRange.end ?? "?"}`],
+    ["Date range", `${dateRange.start || "?"} to ${dateRange.end || "?"}`],
     ["Document types", valueOf(filters.document_types)],
-    ["Require abstract", valueOf(filters.require_abstract)],
-    ["Open access", valueOf(filters.open_access)],
+    ["Require abstract", valueOf(filters.require_abstract ?? false)],
+    ["Open access", valueOf(filters.open_access ?? false)],
     ["Venues / ISSN", valueOf(filters.venues)],
   ];
 
-  const buildMarkdown = (): string => {
-    const project = config?.project?.name ?? "PRISMA Review";
-    const L: string[] = [];
-    L.push(`# Search report — ${project}`, "");
-    L.push("## Funnel", "", "| Stage | Count |", "| --- | ---: |");
-    L.push(`| Records found (search) | ${fmt(totalFound)} |`);
-    perSource.forEach(([src, n]) => L.push(`| · ${src} | ${fmt(n)} |`));
-    L.push(`| After deduplication | ${fmt(afterDedup)} (− ${fmt(dupRemoved)} duplicates) |`);
-    L.push(`| Screened → Included | ${fmt(included)} |`);
-    L.push(`| Screened → Maybe | ${fmt(maybe)} |`);
-    L.push(`| Screened → Excluded | ${fmt(excluded)} |`);
-    if (eligibility && Object.keys(eligibility).length) {
-      L.push(`| Eligibility → Included | ${fmt(eligibility.included ?? 0)} |`);
-    }
-    if (hasQueryData) {
-      L.push("", "## Results per query (with overlap — queries are OR'd)", "");
-      L.push("| Query | Found (raw) | After dedup | Included | Maybe | Excluded |");
-      L.push("| --- | ---: | ---: | ---: | ---: | ---: |");
-      queryRows.forEach((q) =>
-        L.push(`| ${q.name} | ${fmt(q.found_raw)} | ${fmt(q.after_dedup)} | ${fmt(q.included)} | ${fmt(q.maybe)} | ${fmt(q.excluded)} |`),
-      );
-      L.push(
-        "",
-        `_A paper matched by several queries is counted under each, so column sums exceed the ${fmt(byQuery?.total_included ?? included)} distinct included._`,
-      );
-      if (untaggedScreened > 0) {
-        L.push(`_${fmt(untaggedScreened)} screened paper(s) carry no query tag (searched before per-query tracking); re-run the search to attribute them._`);
-      }
-    }
-
-    L.push("", "## Source filters", "", "| Filter | Value |", "| --- | --- |");
-    filterRows.forEach(([k, v]) => L.push(`| ${k} | ${v} |`));
-
-    if (hasPlanData) {
-      L.push("", "## Where each filter is applied", "");
-      L.push(`| Filter | ${planSources.join(" | ")} |`);
-      L.push(`| --- | ${planSources.map(() => "---").join(" | ")} |`);
-      planRows.forEach((row) =>
-        L.push(`| ${row.filter} | ${planSources.map((s) => modeLabel[row.by_source[s] ?? "unsupported"]).join(" | ")} |`),
-      );
-      L.push("", "_At source = sent in the request (server-side). After call = enforced locally after fetch. Ignored = source can't express it._");
-    }
-    L.push("", "## Screening breakdown", "", "| Outcome | Count |", "| --- | ---: |");
-    L.push(`| Excluded by exclude keyword | ${fmt(excludedByKeyword)} |`);
-    L.push(`| Excluded by required-keyword gate | ${fmt(excludedGate)} |`);
-    L.push(`| Included (≥ ${minHits} keyword hits) | ${fmt(included)} |`);
-    L.push(`| Maybe (< ${minHits} hits, needs review) | ${fmt(maybe)} |`);
-    if (warnings.length) {
-      L.push("", "## Transparency warnings (last run)", "");
-      warnings.forEach((w) => L.push(`- ${w}`));
-    }
-    return L.join("\n");
-  };
-
   const handleExport = () => {
-    const md = buildMarkdown();
+    const md = buildReportMarkdown({
+      projectName: config?.project?.name ?? "PRISMA Review",
+      flow,
+      queryRows,
+      totalIncluded,
+      untaggedScreened,
+      filterRows,
+      plan: hasPlanData ? { sources: planSources, rows: planRows } : null,
+      warnings,
+      settingsNote,
+    });
     const project = (config?.project?.name ?? "report").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
     const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -173,6 +119,7 @@ export default function ReportPanel() {
           <span className="text-sm font-semibold text-text-primary">Pipeline report</span>
         </div>
         <button
+          type="button"
           onClick={handleExport}
           disabled={!hasData}
           className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 disabled:opacity-40 transition-colors cursor-pointer"
@@ -188,35 +135,43 @@ export default function ReportPanel() {
         </p>
       ) : (
         <div className="space-y-6">
-          {/* 1) Funnel */}
+          {/* 1) PRISMA flow */}
           <section>
             <h3 className="text-xs uppercase tracking-wide text-text-muted mb-2">
-              Funnel — what came in, what survived each stage
+              PRISMA flow: what came in, what was removed, what is left
             </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-text-muted">
-                    <th className="font-medium py-1.5 px-2 border-b border-border-glass">Stage</th>
-                    <th className="font-medium py-1.5 px-2 border-b border-border-glass text-right">Count</th>
-                    <th className="font-medium py-1.5 px-2 border-b border-border-glass text-right">Δ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <Row label="Records found (search)" count={fmt(totalFound)} strong />
-                  {perSource.map(([src, n]) => (
-                    <Row key={src} label={`· ${src}`} count={fmt(n)} muted indent />
-                  ))}
-                  <Row label="After deduplication" count={fmt(afterDedup)} delta={`− ${fmt(dupRemoved)} dup`} />
-                  <Row label="Screened → Included" count={fmt(included)} accent="green" />
-                  <Row label="Screened → Maybe" count={fmt(maybe)} accent="amber" />
-                  <Row label="Screened → Excluded" count={fmt(excluded)} accent="red" />
-                  {eligibility && eligibility.included !== undefined && (
-                    <Row label="Eligibility → Included" count={fmt(eligibility.included)} accent="green" />
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {flow ? (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-text-muted">
+                        <th className="font-medium py-1.5 px-2 border-b border-border-glass">Stage</th>
+                        <th className="font-medium py-1.5 px-2 border-b border-border-glass text-right">Count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {funnel.map((row) => (
+                        <Row key={row.key} row={row} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {flow.notes.length > 0 && (
+                  <ul className="mt-2 space-y-1">
+                    {flow.notes.map((note, i) => (
+                      <li key={i} className="text-xs text-text-muted leading-relaxed">
+                        {note}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-accent-amber">
+                PRISMA flow counts are not available from this API version. Update the tool and reload.
+              </p>
+            )}
           </section>
 
           {/* 1.5) Results per query */}
@@ -224,7 +179,7 @@ export default function ReportPanel() {
             <section>
               <h3 className="text-xs uppercase tracking-wide text-text-muted mb-2 flex items-center gap-1.5">
                 <Layers size={13} className="text-primary" />
-                Results per query — how many of each query reached each stage
+                Results per query: how many of each query reached each stage
               </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -239,16 +194,16 @@ export default function ReportPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {queryRows.map((q) => (
-                      <tr key={q.name}>
+                    {queryRows.map((q, i) => (
+                      <tr key={`${q.name}-${i}`}>
                         <td className="py-1.5 px-2 border-b border-border-glass/40 text-text-secondary font-mono text-xs" title={q.terms}>
                           {q.name}
                         </td>
-                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-text-muted">{fmt(q.found_raw)}</td>
-                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-text-primary">{fmt(q.after_dedup)}</td>
-                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-accent-green">{fmt(q.included)}</td>
-                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-accent-amber">{fmt(q.maybe)}</td>
-                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-accent-red">{fmt(q.excluded)}</td>
+                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-text-muted">{formatCount(q.found_raw)}</td>
+                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-text-primary">{formatCount(q.after_dedup)}</td>
+                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-accent-green">{formatCount(q.included)}</td>
+                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-accent-amber">{formatCount(q.maybe)}</td>
+                        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums text-accent-red">{formatCount(q.excluded)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -256,12 +211,13 @@ export default function ReportPanel() {
               </div>
               <p className="text-xs text-text-muted mt-2">
                 A paper matched by several queries is counted under each (queries are OR&apos;d), so the columns
-                sum to more than the {fmt(byQuery?.total_included ?? included)} distinct included.
+                sum to more than the {formatCount(totalIncluded)} distinct included.
                 {untaggedScreened > 0 && (
                   <>
                     {" "}
                     <span className="text-accent-amber">
-                      {fmt(untaggedScreened)} paper(s) have no query tag — re-run the search to attribute them.
+                      {formatCount(untaggedScreened)} paper(s) have no query tag (searched before per-query
+                      tracking): re-run the search to attribute them.
                     </span>
                   </>
                 )}
@@ -272,8 +228,14 @@ export default function ReportPanel() {
           {/* 2) Source filters */}
           <section>
             <h3 className="text-xs uppercase tracking-wide text-text-muted mb-2">
-              Source filters — how the request was narrowed
+              Source filters (current settings): how the request is narrowed
             </h3>
+            {settingsNote && (
+              <p className="text-xs text-accent-amber mb-2 flex items-start gap-1.5">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                {settingsNote}
+              </p>
+            )}
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -295,7 +257,7 @@ export default function ReportPanel() {
             {hasPlanData ? (
               <div className="mt-4">
                 <h4 className="text-xs text-text-secondary mb-2">
-                  Where each filter is applied — at the source vs. after the call
+                  Where each filter is applied: at the source vs. after the call
                 </h4>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -315,7 +277,7 @@ export default function ReportPanel() {
                             const mode = (row.by_source[s] ?? "unsupported") as FilterMode;
                             return (
                               <td key={s} className={`py-1.5 px-2 border-b border-border-glass/40 text-xs ${modeClass[mode]}`}>
-                                {modeLabel[mode]}
+                                {FILTER_MODE_LABEL[mode]}
                               </td>
                             );
                           })}
@@ -333,29 +295,12 @@ export default function ReportPanel() {
               </div>
             ) : (
               <p className="text-xs text-text-muted mt-2">
-                No active source filters. See “Transparency warnings” below for query-degradation notes.
+                No active source filters. See &quot;Transparency warnings&quot; below for query-degradation notes.
               </p>
             )}
           </section>
 
-          {/* 3) Screening breakdown */}
-          <section>
-            <h3 className="text-xs uppercase tracking-wide text-text-muted mb-2">
-              Screening — how records were classified
-            </h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <tbody>
-                  <Row label="Excluded by exclude keyword" count={fmt(excludedByKeyword)} accent="red" />
-                  <Row label="Excluded by required-keyword gate" count={fmt(excludedGate)} accent="red" />
-                  <Row label={`Included (≥ ${minHits} keyword hits)`} count={fmt(included)} accent="green" />
-                  <Row label={`Maybe (< ${minHits} hits, needs review)`} count={fmt(maybe)} accent="amber" />
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          {/* 4) Transparency warnings */}
+          {/* 3) Transparency warnings */}
           {warnings.length > 0 && (
             <section>
               <h3 className="text-xs uppercase tracking-wide text-text-muted mb-2 flex items-center gap-1.5">
@@ -377,42 +322,32 @@ export default function ReportPanel() {
   );
 }
 
-function Row({
-  label,
-  count,
-  delta,
-  strong,
-  muted,
-  indent,
-  accent,
-}: {
-  label: string;
-  count: string;
-  delta?: string;
-  strong?: boolean;
-  muted?: boolean;
-  indent?: boolean;
-  accent?: "green" | "amber" | "red";
-}) {
+/** "2026-06-21 13:04 UTC", the same in every browser locale. */
+function utcMinute(iso: string | null | undefined): string {
+  const t = Date.parse(iso ?? "");
+  return Number.isNaN(t) ? "unknown time" : `${new Date(t).toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function Row({ row }: { row: FunnelRow }) {
   const accentClass =
-    accent === "green" ? "text-accent-green"
-    : accent === "amber" ? "text-accent-amber"
-    : accent === "red" ? "text-accent-red"
-    : strong ? "text-text-primary font-semibold"
+    row.accent === "green" ? "text-accent-green"
+    : row.accent === "amber" ? "text-accent-amber"
+    : row.accent === "red" ? "text-accent-red"
+    : row.level === 0 ? "text-text-primary font-semibold"
     : "text-text-primary";
   return (
     <tr>
-      <td className={`py-1.5 px-2 border-b border-border-glass/40 ${muted ? "text-text-muted" : "text-text-secondary"} ${indent ? "pl-5" : ""}`}>
-        {label}
+      <td
+        className={`py-1.5 px-2 border-b border-border-glass/40 ${
+          row.level ? "pl-6 text-text-muted" : "text-text-secondary"
+        }`}
+      >
+        {row.label}
+        {row.detail && <span className="ml-1.5 text-xs text-text-muted">({row.detail})</span>}
       </td>
       <td className={`py-1.5 px-2 border-b border-border-glass/40 text-right tabular-nums ${accentClass}`}>
-        {count}
+        {formatCount(row.count)}
       </td>
-      {delta !== undefined ? (
-        <td className="py-1.5 px-2 border-b border-border-glass/40 text-right text-xs text-text-muted">{delta}</td>
-      ) : (
-        <td className="py-1.5 px-2 border-b border-border-glass/40" />
-      )}
     </tr>
   );
 }

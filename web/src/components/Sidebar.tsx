@@ -15,6 +15,7 @@ import {
   FolderOpen,
   ChevronRight,
   Info,
+  AlertTriangle,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchActiveProject } from "@/lib/api";
@@ -94,6 +95,19 @@ export function Sidebar() {
             {activeProject.display_name || activeProject.active}
           </span>
           <ChevronRight size={12} className="text-text-muted group-hover:text-primary shrink-0" />
+        </Link>
+      )}
+
+      {/* The marker names a missing or invalid project */}
+      {!activeProject?.active && activeProject?.error && (
+        <Link
+          href="/projects"
+          title={activeProject.error}
+          className="mx-3 mb-2 px-3 py-2 rounded-lg bg-accent-amber/10 border border-accent-amber/30 hover:border-accent-amber/50 flex items-center gap-2 transition-colors"
+        >
+          <AlertTriangle size={14} className="text-accent-amber shrink-0" />
+          <span className="text-xs text-accent-amber truncate flex-1">No usable active project</span>
+          <ChevronRight size={12} className="text-accent-amber shrink-0" />
         </Link>
       )}
 

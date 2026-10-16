@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchAllPapers, searchPapers } from "@/lib/api";
+import { PER_PAGE_OPTIONS, fetchAllPapers, normalizePerPage, normalizeSort, searchPapers } from "@/lib/api";
 import GlassCard from "@/components/GlassCard";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
@@ -17,7 +17,7 @@ const decisionColor: Record<string, string> = {
 
 const sourceColor: Record<string, string> = {
   arxiv: "bg-accent-amber/15 text-accent-amber",
-  crossref: "bg-blue-500/15 text-blue-400",
+  crossref: "bg-source-crossref/15 text-source-crossref",
   openalex: "bg-primary/15 text-primary",
   scopus: "bg-accent-green/15 text-accent-green",
   semantic_scholar: "bg-accent-purple/15 text-accent-purple",
@@ -33,20 +33,22 @@ export default function PapersPage() {
 
 const PAPERS_DEFAULTS = { page: 1, decision: "all", source: "all", sort: "", order: "asc", perPage: 25 };
 
-const SORT_COLUMNS: { key: string; label: string; sortable: boolean }[] = [
-  { key: "title", label: "Title", sortable: true },
-  { key: "authors", label: "Authors", sortable: true },
-  { key: "year", label: "Year", sortable: true },
-  { key: "source", label: "Source", sortable: true },
-  { key: "decision", label: "Decision", sortable: true },
+const SORT_COLUMNS: { key: string; label: string }[] = [
+  { key: "title", label: "Title" },
+  { key: "authors", label: "Authors" },
+  { key: "year", label: "Year" },
+  { key: "source", label: "Source" },
+  { key: "decision", label: "Decision" },
 ];
 
 function PapersContent() {
   const { filters, setFilter, setFilters } = usePersistedFilters("papers", PAPERS_DEFAULTS);
   const { page, decision: decisionFilter, source: sourceFilter } = filters;
-  const sort = String(filters.sort ?? "");
+  // Values from the URL or saved UI state are checked against what the API
+  // accepts; an unknown sort column used to make every request fail (WEB#15).
+  const sort = normalizeSort(filters.sort);
   const order = (filters.order === "desc" ? "desc" : "asc") as "asc" | "desc";
-  const perPage = Math.min(1000, Math.max(1, Number(filters.perPage) || 25));
+  const perPage = normalizePerPage(filters.perPage);
 
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -60,24 +62,12 @@ function PapersContent() {
   const setSourceFilter = (v: string) => setFilter("source", v, true);
 
   // Paginated papers from API
-  const { data, isLoading, isPlaceholderData } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["all-papers", page, perPage, decisionFilter, sourceFilter, sort, order],
     queryFn: () => fetchAllPapers(page, perPage, decisionFilter, sourceFilter, sort, order),
     placeholderData: (prev) => prev,
     staleTime: 30_000,
   });
-
-  // Click a column header: same column toggles direction, new column sorts asc.
-  // Sorting applies to the paginated browse only (search has its own ordering).
-  const handleSort = (key: string) => {
-    if (showSearch) return;
-    setFilters((prev) => {
-      if (prev.sort === key) {
-        return { ...prev, order: prev.order === "asc" ? "desc" : "asc", page: 1 };
-      }
-      return { ...prev, sort: key, order: "asc", page: 1 };
-    });
-  };
 
   // Search
   const { data: searchData, isFetching: isSearching } = useQuery({
@@ -92,6 +82,18 @@ function PapersContent() {
   };
 
   const showSearch = searchQuery.length > 0 && searchData;
+
+  // Click a column header: same column toggles direction, new column sorts asc.
+  // Sorting applies to the paginated browse only (search has its own ordering).
+  const handleSort = (key: string) => {
+    if (showSearch) return;
+    setFilters((prev) => {
+      if (prev.sort === key) {
+        return { ...prev, order: prev.order === "asc" ? "desc" : "asc", page: 1 };
+      }
+      return { ...prev, sort: key, order: "asc", page: 1 };
+    });
+  };
   const papers = showSearch ? searchData.papers.map((p) => ({ ...p, authors: "", eligibility: null })) : (data?.papers ?? []);
   const total = showSearch ? searchData.matches : (data?.total ?? 0);
   const totalPages = data?.total_pages ?? 1;
@@ -150,18 +152,18 @@ function PapersContent() {
         </select>
         <label className="flex items-center gap-2 text-sm text-text-muted">
           <span>Show</span>
-          <input
-            type="number"
-            min={1}
-            max={1000}
+          <select
             value={perPage}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!Number.isNaN(v) && v >= 1) setFilter("perPage", Math.min(1000, v), true);
-            }}
-            className="glass-input w-20 text-sm"
-            title="Rows shown per page (max 1000)"
-          />
+            onChange={(e) => setFilter("perPage", Number(e.target.value), true)}
+            className="glass-input text-sm"
+            title="Rows shown per page"
+          >
+            {PER_PAGE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
           <span>per page</span>
         </label>
         <div data-tutorial="export-buttons" className="ml-auto flex gap-2">
@@ -188,21 +190,26 @@ function PapersContent() {
                   return (
                     <th
                       key={col.key}
-                      onClick={() => handleSort(col.key)}
-                      aria-sort={active ? (order === "asc" ? "ascending" : "descending") : "none"}
-                      className={`px-5 py-3 font-medium select-none ${
-                        showSearch ? "cursor-default" : "cursor-pointer hover:text-text-secondary"
-                      }`}
+                      scope="col"
+                      aria-sort={showSearch ? undefined : active ? (order === "asc" ? "ascending" : "descending") : "none"}
+                      className="px-5 py-3 font-medium select-none"
                     >
-                      <span className="inline-flex items-center gap-1">
-                        {col.label}
-                        {!showSearch &&
-                          (active ? (
+                      {showSearch ? (
+                        col.label
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleSort(col.key)}
+                          className="inline-flex items-center gap-1 cursor-pointer hover:text-text-secondary focus-visible:text-text-secondary"
+                        >
+                          {col.label}
+                          {active ? (
                             order === "asc" ? <ChevronUp size={14} /> : <ChevronDown size={14} />
                           ) : (
                             <ChevronsUpDown size={14} className="opacity-30" />
-                          ))}
-                      </span>
+                          )}
+                        </button>
+                      )}
                     </th>
                   );
                 })}

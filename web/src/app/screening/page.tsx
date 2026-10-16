@@ -6,7 +6,17 @@ import { Search, RefreshCw, SlidersHorizontal, ClipboardList } from "lucide-reac
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
 import ReportPanel from "@/components/ReportPanel";
-import { fetchPapersToScreen, screenPaper, searchPapers, rescreenPapers, fetchStats, fetchConfig, updateConfig } from "@/lib/api";
+import {
+  fetchPapersToScreen,
+  screenPaper,
+  searchPapers,
+  rescreenPapers,
+  fetchStats,
+  fetchConfig,
+  updateConfig,
+  type SearchResponse,
+} from "@/lib/api";
+import { savePayload } from "@/lib/configForm";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
 type FilterType = "all" | "maybe" | "include" | "exclude";
@@ -42,9 +52,10 @@ function ScreeningContent() {
   const setBatchSize = (fn: (prev: number) => number) => setPersistedFilter("batch", fn(batchSize));
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResponse["papers"] | null>(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
 
-  const { data, isLoading, isPlaceholderData } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ["papers-to-screen", filter, batchSize],
     queryFn: () => fetchPapersToScreen(batchSize, filter),
     placeholderData: (prev) => prev,
@@ -52,7 +63,12 @@ function ScreeningContent() {
   });
 
   const handleDecision = async (id: string, decision: string, reason: string) => {
-    await screenPaper(id, decision, reason);
+    setDecisionError(null);
+    try {
+      await screenPaper(id, decision, reason);
+    } catch (err) {
+      setDecisionError(err instanceof Error ? err.message : String(err));
+    }
     queryClient.invalidateQueries({ queryKey: ["papers-to-screen"] });
     queryClient.invalidateQueries({ queryKey: ["stats"] });
   };
@@ -95,7 +111,7 @@ function ScreeningContent() {
     staleTime: 30_000,
   });
   const configMinHits = configData?.screening?.rules?.min_include_hits ?? 2;
-  const screenStats = (statsData as any)?.screen ?? {};
+  const screenStats = statsData?.screen ?? {};
 
   const [rescreenHits, setRescreenHits] = useState<number | null>(null);
   // Sync with config once loaded
@@ -104,13 +120,14 @@ function ScreeningContent() {
   const rescreenMutation = useMutation({
     mutationFn: async (hits: number) => {
       const result = await rescreenPapers(hits);
-      // Save the new threshold to config so Settings page stays in sync
-      if (configData) {
-        const updated = { ...configData };
-        if (!updated.screening) updated.screening = { rules: {} };
-        if (!updated.screening.rules) updated.screening.rules = {};
-        updated.screening.rules.min_include_hits = hits;
-        await updateConfig(updated);
+      // The API saves the new threshold to config.yaml itself (v1.6). Older
+      // APIs did not: then write it from a fresh read, with its _version, so a
+      // stale copy of the config can never overwrite newer edits.
+      const fresh = await fetchConfig();
+      if (fresh.screening?.rules?.min_include_hits !== hits) {
+        const updated = structuredClone(fresh);
+        ((updated.screening ??= {}).rules ??= {}).min_include_hits = hits;
+        await updateConfig(savePayload(updated, fresh._version));
       }
       return result;
     },
@@ -134,6 +151,9 @@ function ScreeningContent() {
         </div>
         <div className="flex items-center gap-3">
           <button
+            type="button"
+            aria-expanded={showRescreen}
+            aria-controls="rescreen-panel"
             onClick={() => setShowRescreen(!showRescreen)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
           >
@@ -141,6 +161,9 @@ function ScreeningContent() {
             Re-screen
           </button>
           <button
+            type="button"
+            aria-expanded={showReport}
+            aria-controls="report-panel"
             onClick={() => setShowReport(!showReport)}
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-bg-glass text-text-secondary border border-border-glass hover:border-border-glass-hover transition-colors cursor-pointer"
           >
@@ -150,20 +173,31 @@ function ScreeningContent() {
         </div>
       </div>
 
+      {decisionError && (
+        <div role="alert" className="glass p-3 border-l-4 border-l-accent-red text-sm text-accent-red">
+          Could not save the decision: {decisionError}
+        </div>
+      )}
+
       {/* Report panel */}
-      {showReport && <ReportPanel />}
+      {showReport && (
+        <div id="report-panel">
+          <ReportPanel />
+        </div>
+      )}
 
       {/* Re-screen panel */}
       {showRescreen && (
-        <GlassCard data-tutorial="rescreen-panel" className="!p-4">
+        <GlassCard id="rescreen-panel" data-tutorial="rescreen-panel" className="!p-4">
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex items-center gap-2">
               <SlidersHorizontal size={16} className="text-primary" />
               <span className="text-sm font-medium text-text-primary">Re-run keyword screening</span>
             </div>
             <div className="flex items-center gap-2">
-              <label className="text-sm text-text-secondary">Min keyword hits:</label>
+              <label htmlFor="rescreen-hits" className="text-sm text-text-secondary">Min keyword hits:</label>
               <input
+                id="rescreen-hits"
                 type="number"
                 min={1}
                 max={10}
@@ -172,8 +206,17 @@ function ScreeningContent() {
                 className="glass-input w-20 text-center text-sm"
               />
               <div className="relative group">
-                <button className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold">i</button>
-                <div className="absolute left-0 bottom-7 w-64 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 text-xs space-y-1 shadow-xl">
+                <button
+                  type="button"
+                  aria-label="About the keyword threshold"
+                  className="flex items-center justify-center w-5 h-5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 text-[10px] font-bold"
+                >
+                  i
+                </button>
+                <div
+                  role="tooltip"
+                  className="absolute left-0 bottom-7 w-64 glass-elevated p-3 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible group-focus-within:opacity-100 group-focus-within:visible z-50 text-xs space-y-1 shadow-xl"
+                >
                   <p className="text-text-primary font-medium">How many include keywords must match</p>
                   <p className="text-text-muted">Low (1-2) = more papers pass, permissive</p>
                   <p className="text-text-muted">High (3-5) = fewer papers, stricter</p>
@@ -186,6 +229,7 @@ function ScreeningContent() {
               </span>
             )}
             <button
+              type="button"
               onClick={() => rescreenMutation.mutate(effectiveHits)}
               disabled={rescreenMutation.isPending}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 disabled:opacity-50 transition-colors cursor-pointer ml-auto"
@@ -194,6 +238,11 @@ function ScreeningContent() {
               {rescreenMutation.isPending ? "Re-screening..." : "Apply"}
             </button>
           </div>
+          {rescreenMutation.error && (
+            <p role="alert" className="mt-3 text-sm text-accent-red">
+              Re-screening failed: {rescreenMutation.error.message}
+            </p>
+          )}
           {rescreenMutation.data && (
             <div className="mt-3 p-3 rounded-lg bg-accent-green/10 border border-accent-green/20">
               <p className="text-sm text-accent-green font-medium">
@@ -251,7 +300,7 @@ function ScreeningContent() {
             </button>
           </div>
           <div className="space-y-3">
-            {searchResults.map((paper: any) => (
+            {searchResults.map((paper) => (
               <div
                 key={paper.id}
                 className="flex items-center justify-between p-3 rounded-lg bg-bg-glass/50"
@@ -282,7 +331,9 @@ function ScreeningContent() {
       <div data-tutorial="filter-pills" className="flex gap-2">
         {FILTER_OPTIONS.map((opt) => (
           <button
+            type="button"
             key={opt.value}
+            aria-pressed={filter === opt.value}
             onClick={() => {
               setFilter(opt.value);
             }}

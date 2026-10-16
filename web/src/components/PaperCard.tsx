@@ -7,7 +7,7 @@ import type { PaperSummary } from "@/lib/api";
 
 const sourceBadgeColors: Record<string, string> = {
   arxiv: "bg-accent-amber/15 text-accent-amber",
-  crossref: "bg-blue-500/15 text-blue-400",
+  crossref: "bg-source-crossref/15 text-source-crossref",
   openalex: "bg-primary-dim text-primary",
   scopus: "bg-accent-green/15 text-accent-green",
   semantic_scholar: "bg-accent-purple/15 text-accent-purple",
