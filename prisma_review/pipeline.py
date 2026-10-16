@@ -274,8 +274,10 @@ def search_step(config: Config, *, should_cancel: Callable[[], bool] | None = No
             warnings.append(f"{source}: returned 0 results"
                             + ("" if status_log else " (possible rate limiting or API error)"))
 
-    cancelled = any(e.get("status") == "cancelled" for e in status_log) \
-        or bool(should_cancel and should_cancel())
+    # Cancelled only if a request was: once every request has finished, the
+    # runner has written search_log.json for this search, so its records are
+    # saved to match, and a Stop that came later ends the run at the next step.
+    cancelled = any(e.get("status") == "cancelled" for e in status_log)
     outcome = {"status": "cancelled" if cancelled else "ok", "total": len(papers),
                "sources": counts, "warnings": warnings}
     if cancelled:
