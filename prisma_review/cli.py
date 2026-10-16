@@ -22,9 +22,10 @@ def cmd_search(config: Config) -> None:
     print(f"[SEARCH] Searching {len(config.sources)} source(s) with {len(config.queries)} query(ies)...")
     print(f"  Date range: {config.date_start} to {config.date_end}")
 
-    # Transparency: how each source handles the query and the configured
-    # filters (server-side vs applied locally vs ignored).
-    for w in pipeline.pre_search_warnings(config):
+    # Transparency: config warnings (e.g. OpenAlex without a key), then how
+    # each source handles the query and the configured filters (server-side
+    # vs applied locally vs ignored).
+    for w in config.readiness()["warnings"] + pipeline.pre_search_warnings(config):
         print(f"  [!] {w}")
 
     outcome = pipeline.search_step(config)
