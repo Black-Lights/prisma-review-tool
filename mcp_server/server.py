@@ -733,16 +733,15 @@ def set_review_config(
         date_end: Publication window end, YYYY-MM-DD.
         queries: List of {"name", "terms"} with unique names; terms is a Boolean
             string, e.g. '("crop yield" OR harvest) AND "remote sensing"'.
-            OpenAlex, Scopus, Semantic Scholar and arXiv run the Boolean query;
-            Crossref turns it into plain relevance terms and drops NOT terms.
-            A * wildcard switches OpenAlex to its exact (unstemmed) search.
+            Every source but Crossref runs it as Boolean; Crossref uses plain
+            terms without NOT. A * wildcard makes OpenAlex search unstemmed.
             A JSON string of the list is also accepted.
         include_keywords: Screening terms matched in title and abstract.
         exclude_keywords: Any match excludes the paper.
         min_include_hits: Include keywords a paper needs (1-10).
-        required_keywords: Optional gate: papers with none of these terms (whole
-            words or phrases) in title or abstract are excluded; without an
-            abstract they are left for review. An empty list disables it.
+        required_keywords: Optional gate: papers with none of these whole words
+            or phrases are excluded (left for review if they lack an abstract).
+            An empty list disables it.
         document_types: Any of journal-article, review, conference-paper,
             book-chapter, preprint.
         require_abstract: Drop records without an abstract.
