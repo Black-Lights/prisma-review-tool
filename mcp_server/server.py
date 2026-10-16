@@ -925,7 +925,8 @@ def set_review_config(
             for key in keys[:-1]:
                 node = _section(node, key)
             node[keys[-1]] = value
-        save_raw_config(path, data)
+        if updates:  # a call with no fields is a read; do not rewrite (and strip comments)
+            save_raw_config(path, data)
 
     config = Config.load(path)
     readiness = config.readiness()

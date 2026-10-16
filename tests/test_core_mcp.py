@@ -375,3 +375,11 @@ def test_batch_decisions_accept_a_native_list_or_a_json_string(mcp_server, works
     as_json = json.dumps([{"paper_id": "p5", "decision": "exclude", "reason": "no"}])
     assert j(mcp_server.batch_screen_papers(as_json))["results"][0]["status"] == "ok"
     assert "error" in j(mcp_server.batch_screen_papers("not json"))
+
+
+def test_set_review_config_without_fields_does_not_rewrite(mcp_server, workspace):
+    path = write_config(workspace.project_config("alpha"), make_config(), header="# my notes\n")
+    before = path.read_text(encoding="utf-8")
+    out = j(mcp_server.set_review_config())
+    assert out["status"] == "ok" and out["changed"] == []
+    assert path.read_text(encoding="utf-8") == before

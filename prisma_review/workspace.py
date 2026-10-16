@@ -27,7 +27,7 @@ from pathlib import Path
 import yaml
 
 from .config import Config, load_raw_config, save_raw_config
-from .storage import atomic_write_text, project_lock, read_text
+from .storage import LOCK_FILENAME, atomic_write_text, project_lock, read_text
 
 ENV_CONFIG = "PRISMA_CONFIG"
 ENV_WORKSPACE = "PRISMA_WORKSPACE"
@@ -171,7 +171,8 @@ def read_active_project(root: str | Path | None = None) -> str | None:
     """
     marker = marker_path(root)
     try:
-        name = read_text(marker).strip()
+        # utf-8-sig: a marker saved by hand (e.g. PowerShell) may start with a BOM.
+        name = read_text(marker, encoding="utf-8-sig").strip()
     except FileNotFoundError:
         return None
     hint = ("Switch to an existing project (list_projects / switch_project, or the "
@@ -346,6 +347,6 @@ def migrate_root_to_projects(root: str | Path | None = None) -> str | None:
             dest_output = dest / "prisma_output"
             if old_output.is_dir() and not dest_output.exists():
                 shutil.copytree(old_output, dest_output,
-                                ignore=shutil.ignore_patterns(".prisma.lock"))
+                                ignore=shutil.ignore_patterns(LOCK_FILENAME))
         atomic_write_text(marker_path(base), slug)
     return slug

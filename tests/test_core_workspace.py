@@ -156,3 +156,8 @@ def test_list_project_names_skips_hidden(workspace):
     (workspace.projects_dir / ".trash").mkdir()
     workspace.add_project("beta", active=False)
     assert ws.list_project_names() == ["alpha", "beta"]
+
+
+def test_marker_with_bom_and_newline_is_read(workspace):
+    workspace.marker.write_bytes(b"\xef\xbb\xbfalpha\r\n")
+    assert ws.read_active_project() == "alpha"
