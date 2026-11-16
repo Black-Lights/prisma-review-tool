@@ -149,20 +149,32 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | `run-all` | Run the full pipeline end-to-end |
 
 **Options:**
-- `--config PATH` — Path to config.yaml (default: `./config.yaml`)
+- `--config PATH`: path to a config.yaml (default: the review the web app and the MCP server use, see above)
 - `--force` — Re-run a step even if output already exists
 
 ## MCP Tools Reference
 
+The server has 21 tools. Every tool returns JSON and acts on one review: the config pinned by `PRISMA_CONFIG`, otherwise the active project. Details in [docs/MCP_SETUP.md](docs/MCP_SETUP.md).
+
+### Configuration and Projects
+| Tool | Description |
+|------|-------------|
+| `get_review_config` | The project and config in use, readiness, and per-source query and filter warnings (call it first) |
+| `set_review_config` | Change sources, dates, queries, keywords and filters (validated; nothing written if a value is invalid) |
+| `list_projects` | Projects, the active one, and the one in use |
+| `switch_project` | Make another project active (same as the web app's switcher) |
+| `create_project` | Create a project from the template |
+
 ### First-Pass Screening
 | Tool | Description |
 |------|-------------|
-| `get_screening_stats` | Current pipeline statistics |
-| `get_papers_to_screen` | Batch of "maybe" papers for AI review |
+| `get_screening_stats` | Counts per stage and the PRISMA 2020 flow |
+| `get_papers_to_screen` | Batch of "maybe" (or not yet screened) papers for AI review |
 | `get_paper_details` | Full details of a specific paper |
 | `screen_paper` | Save one screening decision |
 | `batch_screen_papers` | Save multiple screening decisions |
 | `search_in_papers` | Keyword search across collected papers |
+| `rescreen` | Re-apply the keyword rules with another threshold (keeps AI and manual decisions) |
 
 ### Second-Pass Eligibility
 | Tool | Description |
@@ -265,7 +277,7 @@ Only [2% of systematic review tools](https://doi.org/10.1016/j.jclinepi.2021.10.
 | [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial.md) | End-to-end walkthrough |
 | [MCP & AI Screening](wiki/MCP-and-AI-Screening.md) | Setup with any MCP agent |
 | [CLI Reference](wiki/CLI-Reference.md) | All commands and options |
-| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference.md) | All 15 MCP tools with params and responses |
+| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference.md) | All 21 MCP tools with params and responses |
 | [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance.md) | Checklist mapping, flow diagram alignment |
 | [Writing Your Methodology](wiki/Writing-Your-Methodology.md) | Template for thesis/paper methods section |
 | [Troubleshooting & FAQ](wiki/Troubleshooting-and-FAQ.md) | Common issues and solutions |

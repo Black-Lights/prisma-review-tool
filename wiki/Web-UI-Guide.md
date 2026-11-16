@@ -58,7 +58,7 @@ When the pipeline is running, cards show `--` until their step completes. Stats 
 An interactive flow diagram matching the official PRISMA 2020 template (Page et al., BMJ 2021;372:n71). It includes:
 
 - **Identification phase**: Records identified from databases, records removed before screening (duplicates + automation exclusions)
-- **Screening phase**: Records screened, records excluded, reports sought for retrieval, reports not retrieved, reports assessed for eligibility, reports excluded with reasons
+- **Screening phase**: Records not yet screened (no decision recorded yet, shown on their own), records screened, records excluded, reports sought for retrieval, reports assessed for eligibility ("Pending" until the first eligibility decision), reports excluded with reasons. "Reports not retrieved" and "Records removed for other reasons" are marked as not tracked by the tool
 - **Included phase**: Final studies included in review
 
 The diagram **auto-updates** whenever you screen papers or run the pipeline. Click **"Download PNG"** to save a high-resolution image (3x pixel ratio) for your thesis or paper.
@@ -213,14 +213,23 @@ Configure your entire review protocol — search queries, screening keywords, an
 - Use AND/OR operators: `("term A" OR "term B") AND "context"`
 - Queries are sent to all enabled databases
 
+**Source filters**
+- **Document types**, **require abstract**, **open access** and **venues** (ISSNs or journal names). Each source applies a filter at the request where it can and otherwise after the fetch; the report shows which.
+
 **Screening Rules**
 - **Include keywords**: Papers must match at least `min_include_hits` of these
 - **Exclude keywords**: Papers matching any of these are auto-excluded
 - **Minimum include hits**: How many include keywords must match (default 2)
+- **Required keywords** (optional gate): papers with none of these whole words or phrases in title or abstract are excluded; papers without an abstract are left for review
 
-**Save / Reset**
+**API keys**
+- **Scopus** and **OpenAlex** keys, shown masked once saved (`********`); saving the form keeps a stored key unless you type a new one. The OpenAlex key is free and strongly recommended (10 times the daily budget, and paging past 10,000 results)
+- **Contact email** for OpenAlex, Crossref and Unpaywall
+
+**Save / Discard**
 - Click "Save Configuration" to persist changes to config.yaml
-- Click "Reset" to revert to the last saved state
+- Click "Discard changes" to go back to the saved settings
+- If the config changes on disk or the active project changes while you edit (another tab, the MCP server), the page says so and keeps your edits until you decide
 
 ---
 
@@ -302,19 +311,17 @@ Configure AI agent connections for automated paper screening.
 
 #### What is MCP?
 
-Model Context Protocol (MCP) is an open standard that lets AI agents use external tools. The PRISMA Review Tool exposes 15 MCP tools that any compatible AI agent can use to search, screen, and manage your review.
+Model Context Protocol (MCP) is an open standard that lets AI agents use external tools. The PRISMA Review Tool exposes 21 MCP tools that any compatible AI agent can use to configure, run, screen and report your review. The server talks to the agent over stdio: the agent starts it itself, so nothing has to keep running.
 
 #### Supported Agents
 
-The page shows configuration snippets for:
+The page shows the configuration for this install (its Python and `run_mcp.py` paths) for:
 - Claude Code (JSON)
 - OpenAI Codex (TOML)
-- GitHub Copilot (JSON)
+- GitHub Copilot in VS Code (JSON)
 - Cursor (JSON)
-- Windsurf (JSON)
-- Amazon Q (JSON)
 
-Each snippet can be copied with one click.
+An option pins the agent to the active project through `PRISMA_CONFIG`. Each snippet can be copied with one click, and the tool list below it comes from the server. Other agents (Windsurf, Amazon Q, Gemini CLI): see `docs/MCP_SETUP.md`.
 
 ---
 

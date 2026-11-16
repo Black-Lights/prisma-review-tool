@@ -76,7 +76,21 @@ Restart your AI agent (or reload the window in VS Code/Cursor). The MCP server s
 Ask your agent:
 > "Use the prisma-review tools to check screening stats."
 
-You should see your current pipeline numbers.
+You should see your current pipeline numbers. A good first call is "show me the review config" (`get_review_config`): it names the project and config file the server uses, and lists anything that blocks a run.
+
+---
+
+## Which review the server uses
+
+Every tool acts on one review project. The server picks its `config.yaml` in this order:
+
+1. **`PRISMA_CONFIG`**: an environment variable in the agent's MCP config with the path to one config file. It pins that review, and `switch_project` is then disabled.
+2. **The active project**: `projects/.active_project`, the same marker the web app's project switcher writes. Without a pin, the agent follows the project you select in the web app (or with `switch_project`).
+3. **The root `config.yaml`**: only on an install that has no project in `projects/` at all.
+
+When projects exist but none is active (for example right after the active project was deleted), every tool answers "No active project is selected" until you pick one. Tools that change something return `project` and `config_path`, and `list_projects` gives `in_use`, the review the tools act on.
+
+**Upgrading from 1.5**: version 1.5 of the MCP server always read the root `config.yaml`. If the web app ever ran, it copied that review into `projects/` and made the copy active, so after the upgrade the server follows that copy. `get_review_config` and `list_projects` warn when a root `config.yaml` with its own review is being ignored. To stay on the root review, add `"env": {"PRISMA_CONFIG": "<path-to-prisma_tool>/config.yaml"}` to the MCP config. See [docs/MCP_SETUP.md](https://github.com/Black-Lights/prisma-review-tool/blob/main/docs/MCP_SETUP.md#upgrading-from-15).
 
 ---
 
@@ -197,7 +211,7 @@ The agent calls `start_pipeline_step(step="dedup")` to run a single step in back
 
 ### Shared state
 
-The MCP tools and the web dashboard share the same pipeline state. If you start a pipeline from MCP, the web dashboard shows live progress. If you stop from the dashboard, the MCP agent sees the cancellation.
+The MCP tools, the web dashboard and the CLI share the same pipeline state. If you start a pipeline from MCP, the web dashboard shows live progress. If you stop from the dashboard, the MCP agent sees the cancellation. Only one pipeline runs on a project at a time, and while it runs, screening and eligibility decisions are refused (the run replaces those results when its search finishes): the agent gets an error with `"status": "running"` and should try again once `get_pipeline_progress` reports the run finished.
 
 ---
 
@@ -227,7 +241,7 @@ Fields:
 
 ## Troubleshooting
 
-**"Config file not found"**: The MCP server looks for `config.yaml` in the prisma_tool directory. Make sure you've created it from the template.
+**"No active project is selected" or "Config file not found"**: The server uses `PRISMA_CONFIG`, else the active project, else the root `config.yaml` (see [Which review the server uses](#which-review-the-server-uses)). Pick a project with `list_projects` and `switch_project` or on the web Projects page, create one with `create_project`, or fix the `PRISMA_CONFIG` path in the agent's MCP config.
 
 **"No papers to screen"**: Run `python -m prisma_review screen-rules` first. The MCP tools read from the output files.
 

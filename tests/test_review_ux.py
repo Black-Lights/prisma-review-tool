@@ -277,3 +277,20 @@ def test_the_docs_promise_json_errors_except_for_argument_types(mcp_server, work
     # With the right types every problem is listed at once.
     out = j(mcp_server.set_review_config(include_keywords=[""], sources=["pubmed"], min_include_hits=11))
     assert "nothing was written" in out["error"] and len(out["problems"]) >= 3, out
+
+
+# --------------------------------------------------------------------------- R-25
+
+
+@pytest.mark.parametrize("doc", ["README.md", "docs/MCP_SETUP.md", "wiki/MCP-Tools-API-Reference.md"])
+def test_the_docs_list_every_mcp_tool(mcp_server, doc):
+    import asyncio
+    import re
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parent.parent / doc).read_text(encoding="utf-8")
+    tools = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
+    missing = sorted(name for name in tools if f"`{name}`" not in text)
+    assert not missing, f"{doc} does not mention {missing}"
+    for count in re.findall(r"(?:has|exposes|All) (\d+) (?:MCP )?tools", text):
+        assert int(count) == len(tools), f"{doc} says {count} tools"
