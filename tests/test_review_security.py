@@ -135,3 +135,119 @@ def test_openalex_401_body_is_not_forwarded_and_names_the_set_key(monkeypatch):
     status = SearchStatus("openalex")
     search_openalex('"LLM routing"', "2023-01-01", "2024-12-31", max_results=5, status=status)
     assert KEY_HINT in status.error and "api-keys" not in status.error
+
+
+# --------------------------------------------------------------------------- R-4
+
+
+def _zip_members(content: bytes) -> dict[str, bytes]:
+    with zipfile.ZipFile(io.BytesIO(content)) as zf:
+        return {n: zf.read(n) for n in zf.namelist()}
+
+
+def test_project_export_leaves_out_api_keys(api_client, workspace):
+    import yaml
+
+    cfg = make_config("Alpha review")
+    cfg["api_keys"]["openalex_email"] = "someone@example.org"
+    write_config(workspace.project_config("alpha"), cfg)
+    backup = workspace.projects_dir / "alpha" / "config.yaml.bak-2026-10-15"
+    write_config(backup, cfg)
+    (workspace.projects_dir / "alpha" / "config.local.yaml").write_text(
+        "api_keys:\n\tscopus: " + FAKE_SCOPUS_KEY + "\n", encoding="utf-8")  # not YAML
+
+    resp = api_client.get("/api/projects/export/alpha")
+    assert resp.status_code == 200
+    assert FAKE_SCOPUS_KEY.encode() not in resp.content  # deflated, so check members too
+    members = _zip_members(resp.content)
+    for name, body in members.items():
+        assert FAKE_SCOPUS_KEY.encode() not in body and FAKE_OPENALEX_KEY.encode() not in body
+        assert b"someone@example.org" not in body, name
+    exported = yaml.safe_load(members["config.yaml"])
+    assert exported["api_keys"] == {"scopus": "", "openalex_key": "", "openalex_email": ""}
+    assert exported["project"]["name"] == "Alpha review"
+    assert "config.yaml.bak-2026-10-15" in members and "config.local.yaml" not in members
+    # The keys on disk are untouched.
+    assert FAKE_SCOPUS_KEY in workspace.project_config("alpha").read_text(encoding="utf-8")
+
+
+def test_import_fills_keys_from_the_current_project(api_client, workspace):
+    import yaml
+
+    content = api_client.get("/api/projects/export/alpha").content
+    resp = api_client.post("/api/projects/import",
+                           files={"file": ("copy-of-alpha.zip", content, "application/zip")})
+    assert resp.status_code == 200, resp.text
+    saved = yaml.safe_load(workspace.project_config("copy-of-alpha").read_text(encoding="utf-8"))
+    assert saved["api_keys"]["scopus"] == FAKE_SCOPUS_KEY
+    assert saved["api_keys"]["openalex_key"] == FAKE_OPENALEX_KEY
+
+
+# --------------------------------------------------------------------------- OP-4
+
+
+def _zip_with_config(cfg: dict) -> bytes:
+    import yaml
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("config.yaml", yaml.safe_dump(cfg))
+        zf.writestr("prisma_output/review_state.json", "{}")
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize("output_dir", ["..", "../..", "../alpha/prisma_output", "C:/", "/"])
+def test_import_refuses_an_output_dir_outside_the_project(api_client, workspace, output_dir):
+    cfg = make_config("Evil")
+    cfg["project"]["output_dir"] = output_dir
+    resp = api_client.post("/api/projects/import",
+                           files={"file": ("evil.zip", _zip_with_config(cfg), "application/zip")})
+    assert resp.status_code == 400, resp.text
+    assert "output_dir" in resp.json()["detail"]
+    assert not (workspace.projects_dir / "evil").exists()
+
+
+def test_import_keeps_a_normal_output_dir(api_client, workspace):
+    resp = api_client.post("/api/projects/import", files={
+        "file": ("fine.zip", _zip_with_config(make_config("Fine")), "application/zip")})
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.parametrize("output_dir", ["..", "../..", "../../..", "../beta/prisma_output"])
+def test_unsafe_output_dir_blocks_runs_and_never_deletes(mcp_server, workspace, output_dir):
+    from prisma_review import pipeline, workspace as ws
+    from prisma_review.config import Config
+
+    workspace.add_project("beta", make_config("Beta"), active=False, dataset=True)
+    beta_dedup = workspace.output_dir("beta") / "02_dedup" / "deduplicated.json"
+    keep = workspace.root / "02_dedup" / "keep.txt"
+    keep.parent.mkdir(parents=True)
+    keep.write_text("keep", encoding="utf-8")
+    cfg = make_config("Alpha review")
+    cfg["project"]["output_dir"] = output_dir
+    path = write_config(workspace.project_config("alpha"), cfg)
+    config = Config.load(path)
+
+    problem = ws.output_dir_problem(config)
+    assert problem and "output_dir" in problem
+    assert any("output_dir" in p for p in config.readiness()["search_problems"])
+    with pytest.raises(ws.UnsafeOutputDir):
+        pipeline._clear_downstream(config)
+    out = json.loads(mcp_server.start_pipeline())
+    assert "error" in out and any("output_dir" in p for p in out["problems"])
+    from api.session import SessionManager
+    with pytest.raises(RuntimeError, match="output_dir"):
+        SessionManager(state_file=config.state_file).start_full_pipeline(config)
+    assert keep.read_text(encoding="utf-8") == "keep" and beta_dedup.is_file()
+
+
+def test_legacy_root_install_and_normal_projects_are_fine(bare_workspace):
+    from prisma_review import workspace as ws
+    from prisma_review.config import Config
+
+    root_cfg = Config.load(bare_workspace.write_root_config(make_config("Root")))
+    assert ws.output_dir_problem(root_cfg) is None
+    bare_workspace.projects_dir.mkdir()
+    proj = Config.load(bare_workspace.add_project("alpha", make_config("A")))
+    assert ws.output_dir_problem(proj) is None
+    assert proj.readiness()["ready"] is True

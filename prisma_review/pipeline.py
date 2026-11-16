@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from . import workspace
 from .config import KNOWN_SOURCES, Config
 from .dedup import deduplicate, save_dedup_log
 from .models import load_papers, save_papers
@@ -243,7 +244,13 @@ def status_warnings(status_log: list[dict]) -> list[str]:
 
 
 def _clear_downstream(config: Config) -> None:
-    """Remove dedup, screening, eligibility and export results (they belong to the old search)."""
+    """Remove dedup, screening, eligibility and export results (they belong to the old search).
+
+    Raises ``workspace.UnsafeOutputDir`` (nothing removed) when the output
+    folder is not one this review owns, e.g. a config that points it at the
+    workspace or a drive root.
+    """
+    workspace.check_output_dir(config)
     for path in (config.dedup_dir, config.screen_dir, config.eligibility_dir, config.export_dir):
         if path.exists():
             shutil.rmtree(path)

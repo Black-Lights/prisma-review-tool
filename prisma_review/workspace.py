@@ -239,6 +239,63 @@ def resolve_config_path(root: str | Path | None = None) -> Path:
     return resolve(root).config_path
 
 
+# ---------------------------------------------------------------------------
+# Where a project may write its results
+# ---------------------------------------------------------------------------
+
+
+def _is_relative_to(path: Path, other: Path) -> bool:
+    """``path`` is ``other`` or inside it (case-insensitive where the OS is)."""
+    a, b = os.path.normcase(str(path)), os.path.normcase(str(other))
+    return a == b or a.startswith(b.rstrip("\\/") + os.sep)
+
+
+class UnsafeOutputDir(WorkspaceError, ValueError):
+    """project.output_dir points somewhere a run must not write or clean up."""
+
+
+def output_dir_problem(config: Config, root: str | Path | None = None) -> str | None:
+    """Why ``config.output_dir`` is unsafe to run in, or None.
+
+    A new search removes 02_dedup to 04_export under the output folder, so the
+    folder must belong to this review: never a drive root, the home folder,
+    the workspace root, projects/, a folder that contains the config's own
+    folder, or another project's folder. A project's ``./prisma_output`` and
+    the legacy root install's ``./prisma_output`` are fine.
+    """
+    out = config.output_dir.resolve()
+    base = _root(root).resolve()
+    pdir = projects_dir(root).resolve()
+    cfg_dir = Path(config.config_path).resolve().parent if config.config_path else None
+
+    reason = None
+    if out.parent == out:
+        reason = "a drive or filesystem root"
+    elif _same_path(out, Path.home().resolve()):
+        reason = "your home folder"
+    elif _same_path(out, base) or _same_path(out, pdir):
+        reason = "the workspace folder" if _same_path(out, base) else "the projects folder"
+    elif _is_relative_to(base, out) or _is_relative_to(pdir, out):
+        reason = "a folder that contains the workspace"
+    elif cfg_dir is not None and _is_relative_to(cfg_dir, out) and not _same_path(cfg_dir, out):
+        reason = "a folder that contains this review's config"
+    elif cfg_dir is not None and _is_relative_to(cfg_dir, pdir) and not _same_path(cfg_dir, pdir) \
+            and _is_relative_to(out, pdir) and not _is_relative_to(out, cfg_dir):
+        reason = "inside another project's folder"
+    if reason is None:
+        return None
+    return (f"project.output_dir resolves to {out}, which is {reason}. A new search deletes the "
+            f"result folders (02_dedup to 04_export) under it, so it must be a folder of its "
+            f"own: set project.output_dir to ./prisma_output.")
+
+
+def check_output_dir(config: Config, root: str | Path | None = None) -> None:
+    """Raise UnsafeOutputDir if ``output_dir_problem`` finds a problem."""
+    problem = output_dir_problem(config, root)
+    if problem:
+        raise UnsafeOutputDir(problem)
+
+
 def set_active_project(name: str, root: str | Path | None = None) -> None:
     """Make ``name`` the active project (validated; the marker is written atomically)."""
     validate_project_name(name, root)

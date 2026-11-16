@@ -407,6 +407,10 @@ class Config:
             screen_problems.append(
                 "screening.rules.min_include_hits must be at least 1."
             )
+        from .workspace import output_dir_problem  # workspace imports this module
+        output_problem = output_dir_problem(self)
+        if output_problem:
+            search_problems.append(output_problem)
 
         problems = search_problems + screen_problems
         return {

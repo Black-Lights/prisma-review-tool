@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from prisma_review import pipeline
+from prisma_review import pipeline, workspace
 from prisma_review.config import Config
 from prisma_review.pipeline import RunActiveError
 from prisma_review.screen import rescreen
@@ -209,6 +209,9 @@ class SessionManager:
         with self._start_lock:
             if self.is_running:
                 raise RuntimeError("Pipeline is already running")
+            if "search" in steps:
+                # A search replaces the results under output_dir: refuse up front.
+                workspace.check_output_dir(config)
 
             session_id = uuid.uuid4().hex[:12]
             started_at = pipeline.now_iso()
