@@ -1,116 +1,32 @@
-# Session System Implementation — Context for Agent
+# Guide for AI coding agents
 
-## What This Repo Is
+PRISMA Review Tool: a Python package for PRISMA 2020 systematic literature reviews, with a CLI, an MCP server (stdio), a FastAPI backend and a Next.js web app. Read `CONTRIBUTING.md` for the general workflow and `docs/` for user-facing behaviour.
 
-PRISMA Review Tool — an open-source CLI + Web + MCP tool for PRISMA 2020 systematic literature reviews. Released at https://github.com/Black-Lights/prisma-review-tool
+## Layout
 
-## Current Architecture
+| Path | What it holds |
+|------|---------------|
+| `prisma_review/` | The core package. `search/` (one backend per database, `runner.py`, `query_plan.py`, `filters.py`, `http.py`), `dedup.py`, `screen.py` (keyword rules, decisions, rescreen), `pipeline.py` (steps, run ownership), `stats.py` (`compute_flow`, the only source of the PRISMA numbers), `diagram.py`, `workspace.py` (which config is in use), `storage.py` (atomic writes, locks), `config.py`, `cli.py` |
+| `mcp_server/server.py`, `run_mcp.py` | The MCP server (FastMCP over stdio, `mcp>=1.30,<2`) |
+| `api/` | FastAPI backend: `main.py` (CORS, Host check), `routes/`, `session.py` (background pipeline runs) |
+| `web/` | Next.js app; `src/lib/` holds the logic that `web/tests/` covers |
+| `tests/` | pytest; `conftest.py` builds a throw-away workspace through `PRISMA_WORKSPACE` |
+| `docs/`, `wiki/` | User documentation; keep them in step with behaviour changes |
 
-```
-prisma_review/        Python CLI module (search, dedup, screen, export, download)
-mcp_server/           MCP server (11 tools for AI-assisted screening)
-api/                  FastAPI REST backend (wraps prisma_review)
-web/                  Next.js 16 + Tailwind v4 frontend (dark glassmorphism theme)
-```
+## Checks before you commit
 
-## Your Task: Background Pipeline Session System
+- Python: create `.venv`, `pip install -r requirements.txt -r api/requirements.txt -r requirements-dev.txt`, then `python -m pytest -q -p no:cacheprovider` from the repo root.
+- Web: `cd web && npm ci && npm test && npx next build`.
+- MCP smoke: start `run_mcp.py` with the `mcp` stdio client against a temporary workspace (`PRISMA_WORKSPACE`, or `PRISMA_CONFIG` for one config), list the tools and call a few. The stdio client forwards only a few whitelisted environment variables, so pass `env` explicitly. Every tool must return valid JSON and nothing may reach stdout.
 
-The pipeline (search → dedup → screen) currently runs **synchronously** — the HTTP request blocks for minutes. This causes:
-- Browser shows "loading" indefinitely
-- Page reload loses the running state
-- No way to cancel mid-pipeline
-- Pipeline stepper on dashboard doesn't update in real-time
+## Rules
 
-### What You Need to Build
-
-#### Backend: `api/session.py` (NEW)
-
-`PipelineSession` class that:
-- Runs pipeline steps in a `threading.Thread`
-- Tracks state: `idle` | `running` | `completed` | `failed` | `cancelled`
-- Tracks `current_step` (search/dedup/screen), `progress_message`, `started_at`, `error`
-- Stores state in `review_state.json` under a `"pipeline"` key so it persists across restarts
-- Has a `cancel_flag` (threading.Event) checked between steps
-- Singleton pattern — only one pipeline can run at a time
-
-#### Backend: Modify `api/routes/pipeline.py`
-
-- `POST /api/pipeline/start` — launches pipeline in background thread, returns immediately `{"status": "started"}`
-- `GET /api/pipeline/progress` — returns current state (step, status, message, counts). Must be FAST (just reads state, no computation)
-- `POST /api/pipeline/stop` — sets cancel flag, pipeline stops after current step completes
-- Keep existing individual step endpoints (`/search`, `/dedup`, `/screen`) working synchronously for CLI/direct use
-- `POST /api/pipeline/start` accepts optional `steps` param: `["search", "dedup", "screen"]` to run specific steps
-
-#### Frontend: `web/src/components/PipelineProgress.tsx` (NEW)
-
-- Uses `useQuery` with `refetchInterval: 2000` when pipeline is running
-- Shows animated stepper:
-  - **Done** steps: green CheckCircle2 + count
-  - **Running** step: animated spinner (Loader2 icon with `animate-spin`) + "Running..."
-  - **Pending** steps: gray Circle
-  - **Failed** step: red XCircle + error message
-- "Stop Pipeline" button shown when running (uses Modal component for confirmation)
-- Auto-stops polling when status is idle/completed/failed
-
-#### Frontend: Modify `web/src/app/page.tsx` (Dashboard)
-
-- Replace the current static pipeline stepper with `<PipelineProgress />`
-- "Run All" button:
-  - When idle → shows "Run All" (green), calls `POST /api/pipeline/start`
-  - When running → shows "Stop" (red), calls `POST /api/pipeline/stop` (with Modal confirmation)
-  - When completed → shows "Run Again" with warning Modal
-- On page mount, fetch `/api/pipeline/progress` to restore state (survives reload)
-
-### Key Files to Reference
-
-- `api/routes/pipeline.py` — current synchronous pipeline endpoints
-- `api/deps.py` — config loading, file lock
-- `prisma_review/cli.py` — the actual pipeline logic (cmd_search, cmd_dedup, cmd_screen_rules)
-- `web/src/app/page.tsx` — current dashboard with static stepper
-- `web/src/components/Modal.tsx` — reusable modal for confirmations
-- `web/src/lib/api.ts` — API client functions
-
-### Design Rules
-
-- **Dark glassmorphism theme**: bg-bg-base (#0a0e1a), text-text-primary (#e0e8f0), primary (#7dd3fc)
-- Use existing CSS classes: `glass`, `glass-elevated`, `glass-input`, `glow-primary`
-- Use `lucide-react` for icons (CheckCircle2, Circle, Loader2, XCircle, Play, Square)
-- Use `@tanstack/react-query` for data fetching
-- Import API functions from `@/lib/api`
-- Import components from `@/components/*`
-
-### State Shape in review_state.json
-
-```json
-{
-  "search": { ... },
-  "dedup": { ... },
-  "screen": { ... },
-  "eligibility": { ... },
-  "pipeline": {
-    "status": "running",
-    "current_step": "dedup",
-    "progress_message": "Deduplicating 2821 papers...",
-    "started_at": "2026-03-30T12:00:00",
-    "completed_steps": ["search"],
-    "error": null
-  }
-}
-```
-
-### Testing
-
-1. Run `npx next build` in `web/` to verify no TypeScript errors
-2. Start backend: `uvicorn api.main:app --port 8001` (use 8001 to not conflict with main branch on 8000)
-3. Start frontend: `NEXT_PUBLIC_API_URL=http://localhost:8001 npm run dev -- --port 3001`
-4. Click "Run All" → pipeline should start in background → stepper animates → completes
-5. Refresh page mid-pipeline → stepper should restore running state
-6. Click "Stop" → pipeline should stop after current step
-
-### Important
-
-- Do NOT modify files in `prisma_review/` or `mcp_server/` — only `api/` and `web/`
-- The web/ directory needs `npm install` first (node_modules not in worktree)
-- Config file `config.yaml` is gitignored — copy from main: `cp ../prisma_tool/config.yaml .`
-- Output dir `prisma_output/` is gitignored — symlink or copy from main for testing
-- Commit and push to `feature/session-system` when done
+- **stdout belongs to MCP.** The MCP server speaks JSON-RPC on stdout, so nothing it runs may print there. Progress and diagnostics go to stderr: the search backends and `download.py` rebind `print` to stderr, and only `cli.py` (which the server never calls) prints to stdout. `tests/test_search_stdout.py` and `tests/test_core_mcp_stdio.py` guard this.
+- **Atomic writes, one lock.** Write project files through `prisma_review.storage` (`atomic_write_json`, `atomic_write_text`, `atomic_write_yaml`). Every read-modify-write of a project file happens under `project_lock(output_dir)`; change `review_state.json` with `update_state`. The web API, the MCP server and the CLI can run at the same time on the same project.
+- **One writer per result.** Screening results go through `screen.write_screen_results` / `apply_screen_decisions` / `apply_eligibility_decisions`, searches through `pipeline.search_step`, dedup through `pipeline.dedup_step`. A pipeline run is claimed on disk (`api.session.SessionManager`, or `pipeline.claimed_run` for the CLI and the synchronous endpoints); anything that would change results refuses while `pipeline.active_run()` reports a live run.
+- **One review at a time.** Resolve the config with `workspace.resolve()` / `resolve_config_path()` (`PRISMA_CONFIG`, then `projects/.active_project`, then a root `config.yaml` only when no project exists). Never fall back silently to another project.
+- **PRISMA numbers come from `stats.compute_flow`.** The API, the diagrams, the CLI, the MCP tools and the web app show its numbers as they are; do not recompute them elsewhere.
+- **Secrets.** Never commit `config.yaml`, `config.*.yaml`, `projects/`, `prisma_output/` or `.mcp.json` (they hold API keys and personal review data; `.gitignore` covers them). API keys and the contact email must never appear in error text, warnings, logs, `search_log.json` or URLs (use `search.http.redact` and `error_text`). `GET /api/config` masks keys as `********`, and project exports blank them.
+- **Local only.** The API binds to 127.0.0.1 and answers only to local `Host` headers; keep it that way unless a user opts in (`PRISMA_ALLOWED_HOSTS`, `PRISMA_CORS_ORIGINS`, `start.py --host`).
+- **Tests first.** Reproduce a bug in `tests/` before fixing it. Live API calls in tests are not allowed; stub `search.http._send` or the backend functions.
+- Docs and commit messages: plain sentences, Conventional Commits (`fix(scope): ...`), no em dash characters.
