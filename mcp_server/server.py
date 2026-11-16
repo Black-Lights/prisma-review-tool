@@ -232,8 +232,8 @@ def _decision_items(decisions: list[Decision] | str) -> list[dict] | str:
 @_tool
 def get_screening_stats() -> str:
     """Get the review's numbers: search, dedup, screening (split by rule, AI and manual
-    decisions), eligibility, and the PRISMA 2020 flow (records screened, excluded,
-    awaiting review, included)."""
+    decisions; records_in_screening is every record in the screening file), eligibility,
+    and the PRISMA 2020 flow (records not yet screened, screened, excluded, included)."""
     config = _get_config()
     state = load_state(config.state_file)
 
@@ -569,7 +569,7 @@ def generate_report() -> str:
     """Generate the PRISMA 2020 flow diagram (Markdown and PNG) and export included papers to .bib and .csv.
 
     Returns the files written and `flow`: the numbers in the diagram (records
-    identified, removed before screening, screened, excluded, awaiting review,
+    identified, removed before screening, not yet screened, screened, excluded,
     assessed for eligibility, included) with `notes` on anything still pending.
     """
     config = _get_config()

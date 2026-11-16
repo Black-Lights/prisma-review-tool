@@ -4,7 +4,7 @@ import { flowFunnelRows, getFlow, type PrismaFlow } from "../src/lib/flow.ts";
 import { buildReportMarkdown, formatCount, mdCell } from "../src/lib/report.ts";
 
 // Synthetic counts that close like the contract requires:
-// 5641 - 675 - 4325 = 641; 641 - 21 - 450 = 170; 170 - 120 - 0 = 50.
+// 5641 - 675 - 4325 - 450 = 191; 191 - 21 = 170; 170 - 120 - 0 = 50.
 const FLOW: PrismaFlow = {
   identified: { total: 5641, by_source: { openalex: 3036, scopus: 2605 } },
   removed_before_screening: {
@@ -12,7 +12,7 @@ const FLOW: PrismaFlow = {
     automation_ineligible: 4325,
     automation_by_reason: { keyword_rules: 170, required_keywords: 4155 },
   },
-  screened: 641,
+  screened: 191,
   screening_excluded: 21,
   awaiting_screening: 450,
   sought_for_retrieval: 170,
@@ -46,7 +46,7 @@ test("PIPE#12 client: every funnel count is the server's flow number", () => {
   assert.equal(row(rows, "automation").count, 4325);
   assert.equal(row(rows, "automation:keyword_rules").count, 170);
   assert.equal(row(rows, "automation:required_keywords").count, 4155);
-  assert.equal(row(rows, "screened").count, 641);
+  assert.equal(row(rows, "screened").count, 191);
   assert.equal(row(rows, "screening_excluded").count, 21);
   assert.equal(row(rows, "awaiting_screening").count, 450);
   assert.equal(row(rows, "sought_for_retrieval").count, 170);
@@ -137,4 +137,14 @@ test("WEB#8: a settings note is carried into the export", () => {
     settingsNote: "Settings were edited after the last run.",
   });
   assert.match(md, /_Settings were edited after the last run\._/);
+});
+
+test("R-13: records not yet screened are their own row, before and apart from the screened ones", () => {
+  const rows = flowFunnelRows({ ...FLOW, included_by_automation: 150 });
+  const keys = rows.map((r) => r.key);
+  assert.ok(keys.indexOf("awaiting_screening") < keys.indexOf("screened"));
+  assert.equal(row(rows, "awaiting_screening").level, 0);
+  assert.match(row(rows, "awaiting_screening").label, /not yet screened/i);
+  assert.equal(row(rows, "screened").detail, "150 included by keyword rules, no reviewer");
+  assert.equal(row(flowFunnelRows(FLOW), "screened").detail, undefined);
 });

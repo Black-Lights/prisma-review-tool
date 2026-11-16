@@ -98,3 +98,13 @@ test("R-20: the required-keywords tooltip states the whole-word rule the backend
   assert.match(body, /whole word or phrase/);
   assert.match(body, /plural/);
 });
+
+test("R-13/R-18: the web diagram has a not-yet-screened box, pending eligibility and no invented zeros", () => {
+  const src = read("components/PrismaFlowDiagram.tsx");
+  assert.match(src, /Records not yet screened/);
+  assert.doesNotMatch(src, /Awaiting screening, not excluded/);
+  assert.doesNotMatch(src, /n\(0\)/); // "not retrieved" and "other reasons" are not measured
+  for (const field of ["assessed_for_eligibility", "eligibility_excluded", "included"]) {
+    assert.ok(src.includes(`pending(flow?.${field})`), field);
+  }
+});

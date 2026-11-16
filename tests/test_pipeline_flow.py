@@ -24,9 +24,8 @@ def j(text: str) -> dict:
 def assert_closes(flow: dict) -> None:
     removed = flow["removed_before_screening"]
     assert flow["identified"]["total"] - removed["duplicates"] - removed["automation_ineligible"] \
-        == flow["screened"]
-    assert flow["screened"] - flow["screening_excluded"] - flow["awaiting_screening"] \
-        == flow["sought_for_retrieval"]
+        - flow["awaiting_screening"] == flow["screened"]
+    assert flow["screened"] - flow["screening_excluded"] == flow["sought_for_retrieval"]
     assert flow["sought_for_retrieval"] - flow["eligibility_excluded"] - flow["awaiting_eligibility"] \
         == flow["included"]
     assert removed["automation_ineligible"] == sum(removed["automation_by_reason"].values())
@@ -39,14 +38,14 @@ def test_stats_flow_of_a_fresh_review(api_client, workspace):
     assert flow["removed_before_screening"] == {
         "duplicates": 1, "automation_ineligible": 1,
         "automation_by_reason": {"keyword_rules": 1, "required_keywords": 0}}
-    assert flow["screened"] == 5
+    assert (flow["screened"], flow["included_by_automation"]) == (2, 2)
     assert (flow["screening_excluded"], flow["awaiting_screening"]) == (0, 3)
     assert flow["sought_for_retrieval"] == 2
     assert (flow["assessed_for_eligibility"], flow["eligibility_excluded"],
             flow["awaiting_eligibility"], flow["included"]) == (0, 0, 2, 0)
     assert_closes(flow)
     notes = " ".join(flow["notes"]).lower()
-    assert "3 records" in notes and "awaiting screening" in notes
+    assert "3 records are not yet screened" in notes and "keyword rules alone" in notes
 
 
 def test_stats_flow_after_ai_manual_and_eligibility_decisions(api_client, mcp_server, workspace):
@@ -59,7 +58,7 @@ def test_stats_flow_after_ai_manual_and_eligibility_decisions(api_client, mcp_se
 
     flow = api_client.get("/api/stats").json()["flow"]
     assert flow["removed_before_screening"]["automation_ineligible"] == 1
-    assert flow["screened"] == 5
+    assert flow["screened"] == 4
     assert (flow["screening_excluded"], flow["awaiting_screening"]) == (1, 1)
     assert flow["screening_excluded_by_method"] == {"ai": 1, "manual": 0}
     assert flow["sought_for_retrieval"] == 3
@@ -158,16 +157,20 @@ def test_cli_report_diagrams_use_the_flow(workspace, drawn_text):
     cli.cmd_report(config)
 
     md = (config.export_dir / "prisma_flow.md").read_text(encoding="utf-8")
-    assert _n(md, "Records screened") == 5
+    assert _n(md, "Records screened") == 2
     assert _n(md, "Records marked as ineligible by automation tools") == 1
     assert _n(md, "Records excluded") == 0
-    assert _n(md, "Records awaiting screening") == 3
+    assert _n(md, "Records not yet screened") == 3
+    assert _n(md, "Included by the keyword rules without reviewer screening") == 2
     assert _n(md, "Reports sought for retrieval") == 2
     assert "Pending" in md  # no eligibility decisions yet
 
     assert (config.export_dir / "prisma_flow.png").is_file()
     screened_boxes = [t for t in drawn_text if t.startswith("Records screened")]
-    assert screened_boxes and all("(n = 5)" in t for t in screened_boxes), screened_boxes
+    assert screened_boxes and all("(n = 2)" in t for t in screened_boxes), screened_boxes
+    not_yet = [t for t in drawn_text if t.startswith("Records not yet screened")]
+    assert not_yet and all("(n = 3)" in t for t in not_yet), not_yet
+    assert any("Note: 3 records are not yet screened" in t for t in drawn_text)
     excluded_boxes = [t for t in drawn_text if t.startswith("Records excluded")]
     assert excluded_boxes and all("(n = 0)" in t for t in excluded_boxes), excluded_boxes
 
@@ -178,7 +181,8 @@ def test_cli_status_prints_the_flow(workspace, capsys):
     write_dataset(workspace.output_dir("alpha"))
     cli.cmd_status(Config.load(workspace.project_config("alpha")))
     out = capsys.readouterr().out
-    assert "Screened: 5 (0 excluded, 3 awaiting screening)" in out
+    assert "Not yet screened: 3 (no screening decision recorded)" in out
+    assert "Screened: 2 (0 excluded; 2 included by the keyword rules, no reviewer)" in out
     assert "Removed before screening: 1 duplicates, 1 by automation tools" in out
 
 
@@ -196,8 +200,31 @@ def test_api_generate_report_writes_flow_diagram(api_client, workspace):
     write_dataset(workspace.output_dir("alpha"))
     assert api_client.post("/api/reports/generate").json()["status"] == "ok"
     md = (workspace.output_dir("alpha") / "04_export" / "prisma_flow.md").read_text(encoding="utf-8")
-    assert _n(md, "Records screened") == 5
+    assert _n(md, "Records screened") == 2
 
 
 def test_stats_without_any_state_is_an_error_message(api_client):
     assert "error" in api_client.get("/api/stats").json()
+
+
+# --------------------------------------------------------------------------- R-13
+
+
+def test_before_screening_nothing_is_reported_as_screened():
+    from prisma_review.stats import compute_flow
+
+    flow = compute_flow({"search": {"openalex": 100, "total": 100},
+                         "dedup": {"duplicates_removed": 10, "remaining": 90}})
+    assert flow["screening_started"] is False
+    assert (flow["screened"], flow["awaiting_screening"], flow["sought_for_retrieval"]) == (0, 90, 0)
+    assert_closes(flow)
+    notes = " ".join(flow["notes"])
+    assert "Screening has not run yet" in notes and "maybe" not in notes
+
+
+def test_screen_summary_names_the_records_in_the_screening_file(mcp_server, workspace):
+    write_dataset(workspace.output_dir("alpha"))
+    stats = j(mcp_server.get_screening_stats())
+    assert stats["screen"]["records_in_screening"] == 6
+    assert "total_screened" not in stats["screen"]
+    assert stats["flow"]["screened"] == 2 and stats["flow"]["awaiting_screening"] == 3

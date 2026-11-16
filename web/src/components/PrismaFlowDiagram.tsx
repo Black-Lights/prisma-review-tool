@@ -76,6 +76,11 @@ export default function PrismaFlowDiagram({ stats }: Props) {
   const humanVsAi = byMethod(flow?.screening_excluded_by_method);
   const hasSearch = !!stats && !stats.error && Object.keys(stats.search ?? {}).length > 0;
   const muted = "italic text-gray-500";
+  // Like the PNG and Markdown diagrams: before any eligibility decision the
+  // assessed, excluded and included counts are pending, not zero.
+  const eligibilityStarted = !!flow && flow.eligibility_excluded + flow.included > 0;
+  const pending = (val: number | undefined) => (flow && !eligibilityStarted ? "Pending" : `n = ${n(val)}`);
+  const notYetScreened = flow ? flow.awaiting_screening : 0;
 
   /*
    * Layout uses a 3-column CSS grid per row:
@@ -127,18 +132,35 @@ export default function PrismaFlowDiagram({ stats }: Props) {
                   </>
                 )}
                 {!reasons && <br />}
-                <span className="ml-2">Records removed for other reasons (n = {flow ? n(0) : n(null)})</span>
+                <span className="ml-2">Records removed for other reasons <span className={muted}>(not tracked by this tool)</span></span>
               </div>
             </div>
           </div>
 
-          {/* ↓ (under left box only) */}
+          {/* ↓ (under left box only), and the records nobody has screened yet beside it */}
           <div className="flex gap-1.5">
             <div className="w-[22px] shrink-0" />
             <div className={`flex-1 ${grid}`} style={cols}>
               <ArrowDown />
-              <div />
-              <div />
+              {notYetScreened > 0 ? (
+                <>
+                  <div className="flex justify-center"><ArrowRight /></div>
+                  <div className={`${box} my-1`} style={{ borderColor: "#EF6C00", backgroundColor: "#FFF3E0" }}>
+                    <b>Records not yet screened</b><br />
+                    (n = {n(notYetScreened)})
+                    <div className={`text-[10px] ${muted}`}>
+                      {flow?.screening_started === false
+                        ? "Screening has not run yet"
+                        : "No screening decision recorded; neither screened nor excluded"}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div />
+                  <div />
+                </>
+              )}
             </div>
           </div>
 
@@ -153,17 +175,17 @@ export default function PrismaFlowDiagram({ stats }: Props) {
                 <div className={box}>
                   <b>Records screened</b><br />
                   (n = {n(flow?.screened)})
+                  {!!flow?.included_by_automation && (
+                    <div className="ml-3 text-[10px]">
+                      of which {n(flow.included_by_automation)} included by keyword rules, no reviewer
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
                   <b>Records excluded**</b><br />
                   (n = {n(flow?.screening_excluded)})
                   {humanVsAi && <div className="ml-3 text-[10px]">{humanVsAi}</div>}
-                  {!!flow?.awaiting_screening && (
-                    <div className={`text-[10px] ${muted}`}>
-                      Awaiting screening, not excluded (n = {n(flow.awaiting_screening)})
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -183,7 +205,7 @@ export default function PrismaFlowDiagram({ stats }: Props) {
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
                   <b>Reports not retrieved</b><br />
-                  (n = {flow ? n(0) : n(null)})
+                  <span className={muted}>(not tracked by this tool)</span>
                 </div>
               </div>
 
@@ -198,12 +220,12 @@ export default function PrismaFlowDiagram({ stats }: Props) {
               <div className={grid} style={cols}>
                 <div className={box}>
                   <b>Reports assessed for eligibility</b><br />
-                  (n = {n(flow?.assessed_for_eligibility)})
+                  ({pending(flow?.assessed_for_eligibility)})
                 </div>
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
                   <b>Reports excluded:</b><br />
-                  <span className="ml-2">Stricter criteria (n = {n(flow?.eligibility_excluded)})</span>
+                  <span className="ml-2">Stricter criteria ({pending(flow?.eligibility_excluded)})</span>
                   {!!flow?.awaiting_eligibility && (
                     <div className={`text-[10px] ${muted}`}>
                       Awaiting eligibility assessment (n = {n(flow.awaiting_eligibility)})
@@ -232,9 +254,9 @@ export default function PrismaFlowDiagram({ stats }: Props) {
             <div className={`flex-1 ${grid}`} style={cols}>
               <div className={box}>
                 <b>Studies included in review</b><br />
-                (n = {n(flow?.included)})<br />
+                ({pending(flow?.included)})<br />
                 <b>Reports of included studies</b><br />
-                (n = {n(flow?.included)})
+                ({pending(flow?.included)})
               </div>
               <div />
               <div />

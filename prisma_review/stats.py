@@ -7,15 +7,20 @@ generate_report tool all use it. The rules (PRISMA 2020, Page et al., BMJ 2021):
 * records excluded by the keyword rules or the required-keyword gate are
   "Records marked as ineligible by automation tools", removed before
   screening, and counted only there;
-* records screened = identified - duplicates - automation exclusions;
+* records nobody has screened yet ("maybe" from the keyword rules with no AI
+  or manual decision, or every record before screening has run) are "not
+  yet screened" (``awaiting_screening``): neither screened nor excluded;
+* records screened = the records with a screening decision: the AI and
+  manual decisions plus the inclusions by the keyword rules
+  (``included_by_automation``, which reach retrieval without a reviewer);
 * "Records excluded" at screening are the AI and manual exclusions only;
-* "maybe" papers nobody has reviewed yet are awaiting screening, never excluded;
 * reports sought for retrieval = papers included at screening, and the
   eligibility pass splits them into excluded, awaiting and included.
 
-The numbers always add up: identified - duplicates - automation = screened;
-screened - screening_excluded - awaiting_screening = sought_for_retrieval;
-sought_for_retrieval - eligibility_excluded - awaiting_eligibility = included.
+The numbers always add up: identified - duplicates - automation -
+awaiting_screening = screened; screened - screening_excluded =
+sought_for_retrieval; sought_for_retrieval - eligibility_excluded -
+awaiting_eligibility = included.
 """
 
 from __future__ import annotations
@@ -117,8 +122,8 @@ def _screen_from_state(state: dict) -> tuple[dict | None, list[str]]:
     note = ("The screening counts were saved by an older version without the split by "
             "method, so every screening exclusion is reported as an automation-tool "
             "exclusion. Re-screen (or record one decision) to refresh them.")
-    return {"total_screened": _int(screen.get("total_screened")) or sum(rebuilt.values()),
-            "breakdown": rebuilt}, [note]
+    total = _int(screen.get("records_in_screening")) or _int(screen.get("total_screened"))
+    return {"records_in_screening": total or sum(rebuilt.values()), "breakdown": rebuilt}, [note]
 
 
 def compute_flow(state: dict, screen: dict | None = None,
@@ -153,8 +158,12 @@ def compute_flow(state: dict, screen: dict | None = None,
     screening_excluded = sum(v for k, v in b.items()
                              if k.endswith("_exclude") and not k.startswith("rule_"))
     sought = total("_include")
+    included_by_automation = _int(b.get("rule_include"))
     awaiting_listed = total("_maybe") + _int(b.get("unscreened"))
-    in_screening = _int((screen or {}).get("total_screened")) if screen else _int(dedup.get("remaining"))
+    if screen:
+        in_screening = _int(screen.get("records_in_screening")) or _int(screen.get("total_screened"))
+    else:
+        in_screening = _int(dedup.get("remaining"))
 
     if "total" in search:
         identified = _int(search.get("total"))
@@ -165,14 +174,16 @@ def compute_flow(state: dict, screen: dict | None = None,
             notes.append("No search counts were recorded, so the records identified are taken "
                          "from the deduplicated set plus the duplicates removed.")
 
-    screened = identified - duplicates - automation
-    awaiting_screening = screened - screening_excluded - sought
+    # Records that reach screening, and those of them nobody has screened yet.
+    reached = identified - duplicates - automation
+    awaiting_screening = reached - screening_excluded - sought
     if screen is not None and awaiting_screening != awaiting_listed:
         notes.append(f"The screening results cover {in_screening} records but search and dedup "
                      f"report {identified - duplicates}. Re-run dedup and screening (or rescreen) "
                      f"so the counts agree.")
     if awaiting_screening < 0:
         awaiting_screening = 0
+    screened = reached - awaiting_screening
 
     if eligibility is None:
         stored = state.get("eligibility")
@@ -185,10 +196,19 @@ def compute_flow(state: dict, screen: dict | None = None,
                      "re-screen to reconcile them.")
         awaiting_eligibility = 0
 
-    if awaiting_screening:
-        notes.append(f"{awaiting_screening} records are awaiting screening: the keyword rules "
-                     f"left them as \"maybe\" and no AI or manual decision has been recorded. "
-                     f"They are not counted as excluded.")
+    if screen is None:
+        if awaiting_screening:
+            notes.append(f"Screening has not run yet: the {awaiting_screening} records left after "
+                         f"removing duplicates are not yet screened.")
+    elif awaiting_screening:
+        notes.append(f"{awaiting_screening} records are not yet screened: the keyword rules left "
+                     f"them as \"maybe\" and no AI or manual decision has been recorded. They are "
+                     f"neither screened nor excluded; screen them (or report how they were "
+                     f"handled) before publishing these numbers.")
+    if included_by_automation:
+        notes.append(f"{included_by_automation} of the {sought} reports sought for retrieval were "
+                     f"included by the keyword rules alone (enough include keywords), without AI "
+                     f"or manual screening.")
     if sought and not (eligibility_excluded or included):
         notes.append(f"Eligibility assessment has not started: {sought} reports await it, so "
                      f"the number of included studies is pending.")
@@ -202,7 +222,9 @@ def compute_flow(state: dict, screen: dict | None = None,
             "automation_ineligible": automation,
             "automation_by_reason": {"keyword_rules": keyword_rules, "required_keywords": required},
         },
+        "screening_started": screen is not None,
         "screened": screened,
+        "included_by_automation": included_by_automation,
         "screening_excluded": screening_excluded,
         "screening_excluded_by_method": by_method,
         "awaiting_screening": awaiting_screening,
@@ -232,7 +254,10 @@ def project_stats(config: Any, state: dict | None = None) -> dict:
     if screen_file.exists():
         papers = load_papers_cached(screen_file)
         computed = screen_summary(papers, min_include_hits=stored_screen.get("min_include_hits"))
-        screen = {**stored_screen, **computed}
+        # "total_screened" (before 1.6) counted every record in the file, not
+        # the screened ones; records_in_screening replaced it.
+        stored = {k: v for k, v in stored_screen.items() if k != "total_screened"}
+        screen = {**stored, **computed}
         screen_input = computed
         first_pass = [p for p in papers if p.screen_decision == "include"]
     else:

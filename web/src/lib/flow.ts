@@ -13,10 +13,16 @@ export interface PrismaFlow {
     automation_ineligible: number;
     automation_by_reason: { keyword_rules: number; required_keywords: number };
   };
+  /** False before keyword screening has run: every record is then not yet screened. */
+  screening_started?: boolean;
+  /** Records with a screening decision (AI, manual, or included by the keyword rules). */
   screened: number;
+  /** Of the screened records, those the keyword rules included without a reviewer. */
+  included_by_automation?: number;
   screening_excluded: number;
   /** Optional split of screening_excluded (PRISMA asks human vs automation). */
   screening_excluded_by_method?: Record<string, number>;
+  /** Records not yet screened (no decision recorded): neither screened nor excluded. */
   awaiting_screening: number;
   sought_for_retrieval: number;
   assessed_for_eligibility: number;
@@ -102,7 +108,22 @@ export function flowFunnelRows(flow: PrismaFlow): FunnelRow[] {
       level: 1,
     },
     { key: "automation:required_keywords", label: "Required-keyword gate", count: reasons.required_keywords, level: 1 },
-    { key: "screened", label: "Records screened", count: flow.screened, level: 0 },
+    {
+      key: "awaiting_screening",
+      label: "Not yet screened (no decision recorded)",
+      count: flow.awaiting_screening,
+      level: 0,
+      accent: "amber",
+    },
+    {
+      key: "screened",
+      label: "Records screened",
+      detail: flow.included_by_automation
+        ? `${flow.included_by_automation} included by keyword rules, no reviewer`
+        : undefined,
+      count: flow.screened,
+      level: 0,
+    },
     {
       key: "screening_excluded",
       label: "Excluded by reviewers at screening",
@@ -110,13 +131,6 @@ export function flowFunnelRows(flow: PrismaFlow): FunnelRow[] {
       count: flow.screening_excluded,
       level: 1,
       accent: "red",
-    },
-    {
-      key: "awaiting_screening",
-      label: "Awaiting screening (maybe)",
-      count: flow.awaiting_screening,
-      level: 1,
-      accent: "amber",
     },
     { key: "sought_for_retrieval", label: "Reports sought for retrieval", count: flow.sought_for_retrieval, level: 0 },
     {

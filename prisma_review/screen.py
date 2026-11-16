@@ -191,7 +191,7 @@ def screen_summary(papers: Iterable[Paper], *, min_include_hits: int | None = No
         breakdown[key] = breakdown.get(key, 0) + 1
 
     summary: dict[str, Any] = {
-        "total_screened": len(papers),
+        "records_in_screening": len(papers),
         "included": sum(v for k, v in breakdown.items() if k.endswith("_include")),
         "excluded": sum(v for k, v in breakdown.items() if "_exclude" in k),
         "maybe": sum(v for k, v in breakdown.items() if k.endswith("_maybe")),

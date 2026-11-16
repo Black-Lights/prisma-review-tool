@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import textwrap
 from pathlib import Path
 
 import matplotlib.patches as mpatches
@@ -63,13 +64,18 @@ Records removed before screening:
 
 ## Screening
 
-Records screened (title + abstract): n = {flow["screened"]}
+"""
+    if flow["awaiting_screening"]:
+        md += f"""Records not yet screened (no screening decision recorded): n = {flow["awaiting_screening"]}
+
+"""
+    md += f"""Records screened (title + abstract): n = {flow["screened"]}
     Records excluded (AI-assisted and manual review): n = {flow["screening_excluded"]}
         AI-assisted: n = {by_method.get("ai", 0)}
         Manual: n = {by_method.get("manual", 0)}
 """
-    if flow["awaiting_screening"]:
-        md += f"""    Records awaiting screening (not yet reviewed, not excluded): n = {flow["awaiting_screening"]}
+    if flow.get("included_by_automation"):
+        md += f"""    Included by the keyword rules without reviewer screening: n = {flow["included_by_automation"]}
 """
 
     md += f"""
@@ -106,7 +112,7 @@ Studies included in review: Pending eligibility screening
 
 ### Automation Tools Used (PRISMA 2020 Item 8)
 
-- **Keyword screening**: Rule-based automation (prisma_tool screen module); its exclusions are reported as records removed before screening
+- **Keyword screening**: Rule-based automation (prisma_tool screen module); its exclusions are reported as records removed before screening, and the records it includes (enough include keywords) go to retrieval without reviewer screening
 - **AI-assisted screening**: Claude via Model Context Protocol (MCP)
 - **Deduplication**: DOI matching + fuzzy title matching (prisma_tool dedup module)
 - All decisions logged with method (rule/ai/manual) and reason
@@ -137,7 +143,9 @@ def generate_png_diagram(flow: dict, path: Path) -> None:
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 13)
     ax.axis("off")
-    ax.set_title("PRISMA 2020 Flow Diagram", fontsize=16, fontweight="bold", pad=20)
+    in_progress = flow["awaiting_screening"] or flow["awaiting_eligibility"] or not has_eligibility
+    ax.set_title("PRISMA 2020 Flow Diagram" + (" (review in progress)" if in_progress else ""),
+                 fontsize=16, fontweight="bold", pad=20)
 
     def draw_box(x, y, w, h, text, color="#E8F4FD", border="#2196F3"):
         rect = mpatches.FancyBboxPatch(
@@ -172,10 +180,16 @@ def generate_png_diagram(flow: dict, path: Path) -> None:
     # SCREENING
     ax.text(0.3, 10.3, "SCREENING", fontsize=10, fontweight="bold", color="#F57F17")
     screened_text = f"Records screened\n(title + abstract)\n(n = {flow['screened']})"
-    if flow["awaiting_screening"]:
-        screened_text += f"\nAwaiting screening\n(n = {flow['awaiting_screening']})"
+    if flow.get("included_by_automation"):
+        screened_text += (f"\nof which {flow['included_by_automation']} included by\n"
+                          f"keyword rules, no reviewer")
     draw_box(0.5, 8.5, 3.5, 1.2, screened_text, color="#FFF8E1", border="#F57F17")
     draw_arrow(2.25, 11.0, 2.25, 9.7)
+    if flow["awaiting_screening"]:
+        draw_box(5.5, 9.95, 3.5, 0.7,
+                 f"Records not yet screened\n(no decision recorded)\n(n = {flow['awaiting_screening']})",
+                 color="#FFF3E0", border="#EF6C00")
+        draw_arrow(2.25, 10.3, 5.5, 10.3)
     draw_box(5.5, 8.5, 3.5, 1.2,
              f"Records excluded\n(n = {flow['screening_excluded']})\n"
              f"AI-assisted {by_method.get('ai', 0)}, manual {by_method.get('manual', 0)}",
@@ -216,6 +230,12 @@ def generate_png_diagram(flow: dict, path: Path) -> None:
              incl_text,
              color="#E8F5E9", border="#2E7D32")
     draw_arrow(2.25, 5.8, 2.25, 5.0)
+
+    # The notes (records not yet screened, pending eligibility, ...) belong
+    # with the numbers wherever the image is used.
+    if flow.get("notes"):
+        wrapped = "\n".join(textwrap.fill(f"Note: {note}", width=120) for note in flow["notes"])
+        ax.text(0.3, 3.2, wrapped, ha="left", va="top", fontsize=7, color="#424242")
 
     fig.tight_layout()
     fig.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")

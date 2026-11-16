@@ -256,8 +256,12 @@ def cmd_status(config: Config) -> None:
     print(f"    Identified: {flow['identified']['total']}")
     print(f"    Removed before screening: {removed['duplicates']} duplicates, "
           f"{removed['automation_ineligible']} by automation tools")
-    print(f"    Screened: {flow['screened']} ({flow['screening_excluded']} excluded, "
-          f"{flow['awaiting_screening']} awaiting screening)")
+    if flow["awaiting_screening"]:
+        print(f"    Not yet screened: {flow['awaiting_screening']} (no screening decision recorded)")
+    screened = f"    Screened: {flow['screened']} ({flow['screening_excluded']} excluded"
+    if flow.get("included_by_automation"):
+        screened += f"; {flow['included_by_automation']} included by the keyword rules, no reviewer"
+    print(screened + ")")
     print(f"    Sought for retrieval: {flow['sought_for_retrieval']}")
     print(f"    Assessed for eligibility: {flow['assessed_for_eligibility']} "
           f"({flow['eligibility_excluded']} excluded, {flow['awaiting_eligibility']} awaiting)")
