@@ -143,6 +143,10 @@ export default function ProjectsPage() {
           <p className="text-sm text-text-secondary mt-1">
             Manage your literature review projects
           </p>
+          <p className="text-xs text-text-muted mt-1">
+            Exported .zip files leave out API keys and the contact email; an imported project
+            uses the keys of the current one.
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <button
@@ -365,6 +369,7 @@ function ProjectCard({
         </button>
         <button
           onClick={onExport}
+          title="Download as .zip (API keys and the contact email are not included)"
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-bg-glass text-text-secondary border border-border-glass hover:text-text-primary hover:border-border-glass-hover transition-colors"
         >
           <Download size={13} />

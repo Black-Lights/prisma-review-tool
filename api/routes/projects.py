@@ -8,9 +8,12 @@ used to reach rmtree and the zip export.
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import zipfile
 from pathlib import Path
+
+import yaml
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import StreamingResponse
@@ -210,9 +213,35 @@ def duplicate_project(name: str, body: DuplicateProjectRequest):
     return {"status": "duplicated", "name": new_slug, "display_name": body.new_name}
 
 
+# config.yaml and its backups or local variants (config.yaml.bak-2026-10-15,
+# config.local.yaml): every one of them may hold API keys.
+_CONFIG_FILE_RE = re.compile(r"(?i)^config([._-].*)?\.ya?ml(\..*)?$")
+
+
+def _without_secrets(path: Path) -> bytes | None:
+    """A config file with its API keys and contact email blanked, or None to leave it out.
+
+    A file that is not a YAML mapping cannot be cleaned, so it is not exported.
+    """
+    try:
+        data = load_raw_config(path)
+    except (OSError, ConfigError):
+        return None
+    keys = data.get("api_keys")
+    if isinstance(keys, dict):
+        data["api_keys"] = {field: "" for field in keys}
+    return yaml.safe_dump(data, default_flow_style=False, allow_unicode=True,
+                          sort_keys=False).encode("utf-8")
+
+
 @router.get("/export/{name}")
 def export_project(name: str):
-    """Export a project as a .zip file."""
+    """Export a project as a .zip file, without API keys or the contact email.
+
+    config.yaml (and any backup of it) goes into the archive with every
+    ``api_keys`` value blanked: an export is meant to be shared or backed up.
+    Importing it fills the keys in from the current project.
+    """
     name = _valid_name(name)
     project_dir = get_projects_dir() / name
 
@@ -222,9 +251,15 @@ def export_project(name: str):
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for file_path in project_dir.rglob("*"):
-            if file_path.is_file() and file_path.name != LOCK_FILENAME:
-                arcname = str(file_path.relative_to(project_dir))
-                zf.write(file_path, arcname)
+            if not file_path.is_file() or file_path.name == LOCK_FILENAME:
+                continue
+            arcname = file_path.relative_to(project_dir).as_posix()
+            if file_path.parent == project_dir and _CONFIG_FILE_RE.match(file_path.name):
+                cleaned = _without_secrets(file_path)
+                if cleaned is not None:
+                    zf.writestr(arcname, cleaned)
+                continue
+            zf.write(file_path, arcname)
     buf.seek(0)
 
     return StreamingResponse(
@@ -259,7 +294,40 @@ async def import_project(file: UploadFile = File(...)):
     except zipfile.BadZipFile:
         raise HTTPException(status_code=400, detail="Invalid zip file")
 
+    try:
+        _adopt_imported_config(project_dir)
+    except HTTPException:
+        shutil.rmtree(project_dir, ignore_errors=True)
+        raise
     return {"status": "imported", "name": slug}
+
+
+def _adopt_imported_config(project_dir: Path) -> None:
+    """Check an imported project's config and give it the current API keys.
+
+    The archive is untrusted: its ``output_dir`` must stay inside the new
+    project folder, or a later search would delete result folders wherever it
+    points (400, and the import is undone). Exports carry no API keys, so
+    empty ones are filled from the config in use, as for a new project.
+    """
+    cfg_path = project_dir / "config.yaml"
+    if not cfg_path.is_file():
+        return
+    try:
+        data = load_raw_config(cfg_path)
+    except ConfigError as exc:
+        raise HTTPException(status_code=400, detail=f"The imported config.yaml is not usable: {exc}")
+    out = Config(data, base_dir=project_dir, path=cfg_path).output_dir.resolve()
+    if not workspace._is_relative_to(out, project_dir.resolve()):
+        raise HTTPException(status_code=400, detail=(
+            f"The imported config.yaml sets project.output_dir to a folder outside the project "
+            f"({out}). Set it to ./prisma_output in the archive and import it again."))
+    current = workspace._current_api_keys(None)
+    keys = data.get("api_keys") if isinstance(data.get("api_keys"), dict) else {}
+    filled = {**keys, **{k: v for k, v in current.items() if v and not keys.get(k)}}
+    if filled != keys:
+        data["api_keys"] = filled
+        save_raw_config(cfg_path, data)
 
 
 # ---------------------------------------------------------------------------
