@@ -256,14 +256,46 @@ def build_semantic_params(f: SearchFilters) -> dict:
 
 # --- Post-request channel -----------------------------------------------------
 
+# Words a journal name can drop or abbreviate away ("Computers & Electronics in
+# Agriculture" is "Comput. Electron. Agric." in ISO 4).
+_VENUE_STOPWORDS = frozenset({"and", "in", "of", "the", "for", "on", "a", "an", "to", "de", "la"})
+
+
+def venue_tokens(name: str) -> list[str]:
+    """A venue name as lower-case words, "&" read as "and", punctuation and stop words dropped."""
+    text = re.sub(r"[^\w]+", " ", name.casefold().replace("&", " and ")).replace("_", " ")
+    return [w for w in text.split() if w not in _VENUE_STOPWORDS]
+
+
+def venue_name_matches(wanted: str, venue: str) -> bool:
+    """Whether the venue name ``wanted`` (as written in the config) names ``venue``.
+
+    Case, "&" versus "and", punctuation and small words do not matter, and
+    each word may be abbreviated: "Computers & Electronics in Agriculture" and
+    "Comput. Electron. Agric." both match "Computers and Electronics in
+    Agriculture". The words must appear in order, next to each other, so
+    "Remote Sensing" matches "Remote Sensing of Environment" but not
+    "Sensing and Remote Control".
+    """
+    want, have = venue_tokens(wanted), venue_tokens(venue)
+    if not want:
+        return " ".join(wanted.casefold().split()) in " ".join(venue.casefold().split())
+    for start in range(len(have) - len(want) + 1):
+        if all(have[start + i].startswith(w) for i, w in enumerate(want)):
+            return True
+    return False
+
+
 def apply_post_filters(papers: list[Paper], f: SearchFilters, source: str,
-                       skip: frozenset[str] | set[str] = frozenset()) -> list[Paper]:
+                       skip: frozenset[str] | set[str] = frozenset(),
+                       removed: dict[str, int] | None = None) -> list[Paper]:
     """Enforce the filters ``source`` cannot apply itself (mode "post").
 
     Filters applied at the request are not re-checked and unsupported ones
     are not enforced (both are reported by :func:`source_filter_warnings`).
     ``skip`` names filters to leave out for this result, e.g. when the source
-    returned records without the field the filter needs.
+    returned records without the field the filter needs. ``removed``, when
+    given, receives the number of records each filter removed (by label).
     """
     if f.is_empty:
         return papers
@@ -274,23 +306,30 @@ def apply_post_filters(papers: list[Paper], f: SearchFilters, source: str,
 
     accept_types = set(_mapped_types(source, f.document_types))
     issns, names = split_venues(f.venues)
-    names_lower = [n.lower() for n in names]
+    counts = removed if removed is not None else {}
+
+    def drop(key: str) -> None:
+        counts[_LABELS[key]] = counts.get(_LABELS[key], 0) + 1
 
     kept: list[Paper] = []
     for p in papers:
         if "require_abstract" in post and not (p.abstract or "").strip():
+            drop("require_abstract")
             continue
         if "document_types" in post and accept_types and p.type and p.type not in accept_types:
+            drop("document_types")
             continue
         if "open_access" in post and p.is_oa is False:
+            drop("open_access")
             continue
         if "venues_issn" in post or "venues_name" in post:
             issn_ok = "venues_issn" in post and normalize_issn(p.issn) in issns
             name_ok = ("venues_name" in post and bool(p.venue)
-                       and any(n in p.venue.lower() for n in names_lower))
+                       and any(venue_name_matches(n, p.venue) for n in names))
             has_info = bool(p.issn) or bool(p.venue)
             # Only exclude when we have venue info and it matches nothing.
             if has_info and not (issn_ok or name_ok):
+                drop("venues_name" if "venues_name" in post else "venues_issn")
                 continue
         kept.append(p)
     return kept

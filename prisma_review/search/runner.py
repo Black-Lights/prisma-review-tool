@@ -86,7 +86,8 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
     :func:`result_key`, after the local post-request filters. When
     ``status_log`` is a list, one dict per pair is appended as soon as the
     pair finishes: ``{source, query, query_index, status, error, api_total,
-    retrieved, after_post_filter, executed, capped_by_max_results, notes}``
+    retrieved, after_post_filter, executed, capped_by_max_results, notes,
+    removed_by_filter}``
     with ``status`` one of ok, partial, failed, skipped, cancelled. ``should_cancel`` is polled between
     pages and during retry waits; once it returns True the remaining pairs are
     reported as cancelled and ``01_search/search_log.json`` is left as it was.
@@ -148,7 +149,9 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
                     cancelled = True
 
             retrieved = len(papers)
-            kept = apply_post_filters(papers, filters, source, skip=status.skip_post_filters)
+            removed_by: dict[str, int] = {}
+            kept = apply_post_filters(papers, filters, source, skip=status.skip_post_filters,
+                                      removed=removed_by)
 
             # Provenance: dedup later unions these across merged duplicates.
             for p in kept:
@@ -176,6 +179,7 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
                                               and status.api_total > config.max_results
                                               and retrieved >= config.max_results),
                 "notes": list(status.notes),
+                "removed_by_filter": removed_by,
             }
             if status_log is not None:
                 status_log.append(dict(entry))

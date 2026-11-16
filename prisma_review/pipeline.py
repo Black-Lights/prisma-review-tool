@@ -365,7 +365,8 @@ def status_warnings(status_log: list[dict]) -> list[str]:
 
     Covers requests that failed, were skipped or returned partial results,
     searches cut at max_results_per_query (the API matched more records than
-    were kept), and the source's own notes about the result.
+    were kept), local filters that removed more than half of the records,
+    and the source's own notes about the result.
     """
     warnings = []
     for entry in status_log:
@@ -382,6 +383,14 @@ def status_warnings(status_log: list[dict]) -> list[str]:
             parts.append(text)
         elif entry.get("capped_by_max_results"):
             parts.append(_cap_text(entry))
+        retrieved, after = int(entry.get("retrieved") or 0), entry.get("after_post_filter")
+        lost = retrieved - int(after or 0)
+        if retrieved and after is not None and lost * 2 > retrieved:
+            by = entry.get("removed_by_filter") or {}
+            named = ", ".join(f"{k} {v}" for k, v in sorted(by.items(), key=lambda kv: -kv[1]))
+            parts.append(f"the filters applied after the request removed {lost} of {retrieved} "
+                         f"records" + (f" ({named})" if named else "")
+                         + "; check the filter values (e.g. a venue name spelled differently)")
         parts += [note for note in entry.get("notes") or [] if note != entry.get("error")]
         if parts:
             warnings.append(f"{entry.get('source')}, query '{entry.get('query')}': "

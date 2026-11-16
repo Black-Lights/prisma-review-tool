@@ -157,7 +157,7 @@ Each source applies a filter in one of three ways, and the pipeline warnings (pl
 - **after the fetch**: the source has no such filter, so the tool removes records locally (for example `require_abstract` for Semantic Scholar, Scopus and arXiv, or venue names for OpenAlex and Crossref). The search log records how many records each source lost this way.
 - **not applied**: the source cannot evaluate it, so it is ignored there (for example `open_access` on Crossref, ISSNs on Semantic Scholar, a document type the source has no equivalent for).
 
-Venues: give journals by ISSN where you can. OpenAlex and Crossref restrict by ISSN at the request, so when you mix ISSNs and names, papers from the journals you gave only by name cannot come back from those sources (a warning lists them). Semantic Scholar takes names only.
+Venues: give journals by ISSN where you can. OpenAlex and Crossref restrict by ISSN at the request, so when you mix ISSNs and names, papers from the journals you gave only by name cannot come back from those sources (a warning lists them). Semantic Scholar takes names only. Where a name is checked after the request, case, "&" versus "and", punctuation and small words such as "in" or "of" do not matter, and words may be abbreviated ("Comput. Electron. Agric." matches "Computers and Electronics in Agriculture"); the words must appear in that order. When the filters applied after a request remove more than half of its records, the pipeline warns and names the filter, so a misspelled venue does not silently empty a search.
 
 Scopus without institutional network access falls back to its STANDARD view, which has no abstracts: `require_abstract` is then not applied to Scopus records (it would remove all of them) and a warning says so.
 

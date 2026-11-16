@@ -20,7 +20,8 @@ from prisma_review.search.http import SearchCancelled
 from test_search_backends import Resp, fake_http  # noqa: F401  (fixture)
 
 CONTRACT_KEYS = {"source", "query", "query_index", "status", "error", "api_total", "retrieved",
-                 "after_post_filter", "executed", "capped_by_max_results", "notes"}
+                 "after_post_filter", "executed", "capped_by_max_results", "notes",
+                 "removed_by_filter"}
 
 
 def config(tmp_path, *, sources=("openalex",), queries=None, filters=None, email="") -> Config:

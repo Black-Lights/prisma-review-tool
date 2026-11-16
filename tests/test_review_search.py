@@ -64,3 +64,51 @@ def test_the_flow_notes_that_identified_counts_are_capped(api_client, workspace)
     assert flow["identified"]["capped_searches"] == 1
     note = next(n for n in flow["notes"] if "max_results_per_query" in n)
     assert "openalex, query 'main', 25 of 2,311" in note
+
+
+# --------------------------------------------------------------------------- R-16
+
+
+def _venue_filters(*venues):
+    from prisma_review.search.filters import SearchFilters
+
+    return SearchFilters(document_types=[], require_abstract=False, open_access=False,
+                         venues=list(venues))
+
+
+def test_venue_names_match_however_they_are_written():
+    from prisma_review.models import Paper
+    from prisma_review.search.filters import apply_post_filters
+
+    cea = [Paper(title=f"t{i}", venue="Computers and Electronics in Agriculture", source="openalex")
+           for i in range(5)]
+    for name in ("Computers & Electronics in Agriculture", "Comput. Electron. Agric.",
+                 "computers and electronics in agriculture", "COMPUTERS AND ELECTRONICS IN AGRICULTURE"):
+        assert apply_post_filters(cea, _venue_filters(name), "openalex") == cea, name
+    # Still a filter: other journals and words out of order do not pass.
+    other = Paper(title="x", venue="Sensing and Remote Control", source="openalex")
+    rse = Paper(title="y", venue="Remote Sensing of Environment", source="openalex")
+    assert apply_post_filters([other, rse], _venue_filters("Remote Sensing"), "openalex") == [rse]
+    removed: dict = {}
+    apply_post_filters(cea + [other], _venue_filters("Agriculture Computers"), "openalex",
+                       removed=removed)
+    assert removed == {"venues (name)": 6}
+
+
+def test_a_post_filter_that_removes_most_records_is_a_warning(tmp_path, monkeypatch):
+    from prisma_review import pipeline
+    from prisma_review.models import Paper
+    from prisma_review.search import runner
+
+    def openalex(query, *args, status=None, **kwargs):
+        status.api_total = 4
+        return [Paper(title=f"t{i}", venue="Computers and Electronics in Agriculture",
+                      source="openalex", source_id=f"W{i}") for i in range(4)]
+
+    monkeypatch.setattr(runner, "search_openalex", openalex)
+    cfg = config(tmp_path, sources=["openalex"], filters={"venues": ["Journal of Agronomy"]})
+    outcome = pipeline.search_step(cfg)
+    warning = next(w for w in outcome["warnings"] if "removed" in w)
+    assert "removed 4 of 4 records (venues (name) 4)" in warning
+    log = json.loads((cfg.search_dir / "search_log.json").read_text(encoding="utf-8"))
+    assert log["searches"][0]["removed_by_filter"]
