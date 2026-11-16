@@ -33,7 +33,8 @@ from prisma_review.pipeline import (
     RunActiveError, StepError, active_run, describe_run, request_cancel_on_disk,
 )
 from prisma_review.screen import (
-    apply_eligibility_decisions, apply_screen_decisions, rescreen as rescreen_papers,
+    apply_eligibility_decisions, apply_screen_decisions, papers_to_screen,
+    rescreen as rescreen_papers,
 )
 from prisma_review.stats import load_papers_cached, project_stats
 from prisma_review.export import export_bibtex, export_csv
@@ -297,17 +298,15 @@ def get_papers_to_screen(batch_size: int = 10, filter_type: str = "maybe") -> st
 
     Args:
         batch_size: Number of papers to return (default 10)
-        filter_type: "maybe" for uncertain papers, "unscreened" for all unscreened, "all" for everything
+        filter_type: "maybe" (default): papers the keyword rules left undecided;
+            "unscreened": papers with no rule, AI or manual decision yet ("maybe"
+            or not screened at all); "all": every screened paper, decided ones too.
     """
     config = _get_config()
-
-    if filter_type == "maybe":
-        papers = load_papers_cached(config.screen_dir / "maybe.json")
-    elif filter_type == "unscreened":
-        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
-        papers = [p for p in papers if p.screen_decision is None]
-    else:
-        papers = load_papers_cached(config.screen_dir / "screen_results.json")
+    try:
+        papers = papers_to_screen(config, filter_type, load_papers_cached)
+    except ValueError as exc:
+        return _error(str(exc), **_target(config))
 
     batch = papers[:batch_size]
     result = []

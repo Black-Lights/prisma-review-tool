@@ -128,6 +128,33 @@ def get_by_decision(papers: list[Paper], decision: str) -> list[Paper]:
     return [p for p in papers if p.screen_decision == decision]
 
 
+SCREEN_FILTERS = ("maybe", "unscreened", "all")
+
+
+def papers_to_screen(config: Config, filter_type: str = "maybe",
+                     load: Any = load_papers) -> list[Paper]:
+    """Papers for the first-pass screening queue (web app and MCP server).
+
+    ``maybe``: the keyword rules left them undecided. ``unscreened``: no
+    reviewer or AI decision yet and no rule decision either way, i.e. "maybe"
+    or no decision at all (every deduplicated paper before keyword screening
+    has run). ``all``: every screened paper. ``load`` reads a papers file
+    (e.g. a cached reader). Raises ValueError for any other filter.
+    """
+    if filter_type not in SCREEN_FILTERS:
+        raise ValueError(f"Unknown filter_type {filter_type!r}: use one of "
+                         + ", ".join(SCREEN_FILTERS) + ".")
+    if filter_type == "maybe":
+        return load(config.screen_dir / "maybe.json")
+    screened = load(config.screen_dir / "screen_results.json")
+    if filter_type == "all":
+        return screened
+    if not screened:
+        return [p for p in load(config.dedup_dir / "deduplicated.json") if not p.screen_decision]
+    return [p for p in screened if p.screen_method not in KEPT_METHODS
+            and (p.screen_decision or "maybe") == "maybe"]
+
+
 def count_excluded_by_required(papers: list[Paper]) -> int:
     """Count papers excluded specifically by the required-keywords gate."""
     return sum(1 for p in papers

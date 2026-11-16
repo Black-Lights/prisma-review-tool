@@ -9,7 +9,9 @@ from fastapi.responses import Response
 
 from prisma_review.models import Paper
 from prisma_review.pipeline import RunActiveError, StepError
-from prisma_review.screen import apply_eligibility_decisions, apply_screen_decisions, rescreen
+from prisma_review.screen import (
+    apply_eligibility_decisions, apply_screen_decisions, papers_to_screen, rescreen,
+)
 from prisma_review.stats import load_papers_cached, project_stats
 from prisma_review.config import Config, config_version
 from prisma_review.diagram import load_state
@@ -200,13 +202,7 @@ def get_papers_to_screen(
     filter_type: str = Query("maybe", pattern="^(maybe|unscreened|all)$"),
     config: Config = Depends(get_config),
 ):
-    if filter_type == "maybe":
-        papers = load_papers_cached(config.screen_dir / "maybe.json")
-    elif filter_type == "unscreened":
-        papers = load_papers_cached(config.dedup_dir / "deduplicated.json")
-        papers = [p for p in papers if p.screen_decision is None]
-    else:
-        papers = load_papers_cached(config.screen_dir / "screen_results.json")
+    papers = papers_to_screen(config, filter_type, load_papers_cached)
 
     batch = papers[:batch_size]
     return {
