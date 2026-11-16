@@ -1,6 +1,6 @@
 # PRISMA Review Tool
 
-[![Version: 1.5.1](https://img.shields.io/badge/version-1.5.1-blue.svg)](CHANGELOG.md)
+[![Version: 1.6.0](https://img.shields.io/badge/version-1.6.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-green.svg)](https://www.python.org)
 
@@ -290,7 +290,8 @@ Also available in `docs/`:
 ## Roadmap
 
 - **v1.0**: CLI + MCP server with two-pass screening
-- **v1.5** (current): Re-screen from Screening page, PRISMA 2020 compliant diagram, workflow-ordered tutorial (24 steps)
+- **v1.6** (current): Merges the community fork (Crossref, project and pipeline MCP tools, live updates, source-side filters, required-keyword gate), search log for PRISMA item 7, per-query search status, correct PRISMA 2020 counts, safe concurrent writes, local-only API
+- **v1.5**: Re-screen from Screening page, PRISMA 2020 compliant diagram, workflow-ordered tutorial (24 steps)
 - **v1.4**: Elsevier-style export with field picker, per-project filter persistence
 - **v1.3**: One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
 - **v2.0** (planned): Desktop app (Tauri), drag-and-drop config builder, multi-user support
@@ -322,6 +323,13 @@ If you use this tool in your research, please cite:
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Acknowledgements
+
+Version 1.6 is built on a community fork:
+
+- [walterdemacedorodrigues](https://github.com/walterdemacedorodrigues) added Crossref as a search source and moved the web app to a current Next.js ([#3](https://github.com/Black-Lights/prisma-review-tool/pull/3)).
+- agoshigagoroba added the MCP tools for configuring reviews, managing projects and running the pipeline from an agent, live updates in the web app, the required-keywords gate, source-side search filters with the screening report panel, search provenance, and the fix that keeps the MCP channel clean of progress output.
 
 ## License
 

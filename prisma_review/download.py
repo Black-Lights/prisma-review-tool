@@ -15,6 +15,7 @@ from typing import Optional
 import requests
 
 from .models import Paper
+from .search.http import USER_AGENT
 
 # Progress output must go to stderr: this module is imported by the stdio MCP
 # server, where stdout is the JSON-RPC channel and any stray byte corrupts it.
@@ -170,9 +171,7 @@ def _download_elsevier_pdf(doi: str, api_key: str, path: Path) -> bool:
 def _download_pdf(url: str, path: Path) -> bool:
     """Download a PDF from a URL."""
     try:
-        resp = requests.get(url, timeout=30, stream=True, headers={
-            "User-Agent": "prisma-review-tool/1.0 (https://github.com/Black-Lights/prisma-review-tool)"
-        })
+        resp = requests.get(url, timeout=30, stream=True, headers={"User-Agent": USER_AGENT})
         if resp.status_code == 200:
             content_type = resp.headers.get("content-type", "")
             # Verify it's actually a PDF
