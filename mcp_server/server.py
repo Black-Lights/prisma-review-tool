@@ -985,7 +985,8 @@ def start_pipeline() -> str:
     """Start the full pipeline (search, dedup, keyword screening) in a background thread.
 
     Once the new search has finished it replaces the project's earlier search,
-    dedup, screening and eligibility results (a cancelled search keeps them).
+    dedup, screening and eligibility results (a cancelled search, or one that returned
+    no records because every request failed, keeps them).
     Returns the session ID, the project it runs on and config warnings. One
     pipeline per project at a time, including runs started from the web app.
     Use get_pipeline_progress() to monitor progress.

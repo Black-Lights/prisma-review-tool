@@ -17,8 +17,8 @@ from .download import download_papers
 from .diagram import generate_markdown_diagram, generate_png_diagram, load_state
 
 
-def cmd_search(config: Config) -> None:
-    """Run search queries across all configured databases."""
+def cmd_search(config: Config) -> bool:
+    """Run search queries across all configured databases. False if the search failed."""
     print(f"[SEARCH] Searching {len(config.sources)} source(s) with {len(config.queries)} query(ies)...")
     print(f"  Date range: {config.date_start} to {config.date_end}")
 
@@ -30,6 +30,11 @@ def cmd_search(config: Config) -> None:
 
     outcome = pipeline.search_step(config)
     source_counts = outcome["sources"]
+    if outcome["status"] == "failed":
+        for w in outcome["warnings"]:
+            print(f"  [!] {w}")
+        print(f"\n[SEARCH] Failed. {outcome['error']}")
+        return False
 
     print(f"\n[SEARCH] Done! Total: {outcome['total']} papers from {len(source_counts)} source(s)")
     for src, count in source_counts.items():
@@ -37,6 +42,7 @@ def cmd_search(config: Config) -> None:
     for w in outcome["warnings"]:
         print(f"  [!] {w}")
     print(f"  Saved to: {config.search_dir / 'all_records.json'}")
+    return True
 
 
 def cmd_dedup(config: Config) -> None:
@@ -210,7 +216,9 @@ def cmd_run_all(config: Config) -> None:
     print(f"Project: {config.project_name}")
     print("=" * 60)
 
-    cmd_search(config)
+    if not cmd_search(config):
+        print("Pipeline stopped: the search failed, nothing was changed.")
+        return
     print()
     cmd_dedup(config)
     print()

@@ -98,6 +98,8 @@ def stop_pipeline(
 def run_search(config: Config = Depends(get_config)):
     _ensure_idle(config)
     outcome = pipeline.search_step(config)
+    if outcome["status"] == "failed":
+        return {"status": "failed", "error": outcome["error"], "warnings": outcome["warnings"]}
     return {"status": "ok", "total": outcome["total"], "sources": outcome["sources"],
             "warnings": outcome["warnings"]}
 

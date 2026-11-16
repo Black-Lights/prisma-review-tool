@@ -176,3 +176,106 @@ def test_pipeline_screen_step_reports_set_aside_decisions(workspace):
     result = session._run_screen(config)
     assert result["eligibility_set_aside"] == 1 and "kept_ai" in result
     assert any("set aside" in w for w in session.warnings)
+
+
+# --------------------------------------------------------------------------- R-12
+
+
+def _offline(monkeypatch):
+    import requests
+
+    from prisma_review.search import arxiv_search, http
+
+    def down(*a, **k):
+        raise requests.exceptions.ConnectionError("network is down")
+
+    monkeypatch.setattr(http, "_send", down)
+    monkeypatch.setattr(http, "_sleep", lambda s: None)
+    monkeypatch.setattr(arxiv_search._CountingClient, "results", lambda self, search: down())
+
+
+def _snapshot(out):
+    return {d: sorted(p.name for p in (out / d).iterdir()) if (out / d).is_dir() else None
+            for d in ("01_search", "02_dedup", "03_screen", "03b_eligibility")}
+
+
+def test_a_search_where_every_request_fails_keeps_the_previous_results(workspace, monkeypatch):
+    from prisma_review import pipeline
+    from prisma_review.config import Config
+    from prisma_review.screen import apply_eligibility_decisions
+
+    cfg = make_config("Alpha review")
+    cfg["search"]["sources"] = ["openalex", "crossref", "arxiv", "semantic_scholar", "scopus"]
+    cfg["api_keys"]["scopus"] = ""  # scopus is skipped
+    config = Config.load(write_config(workspace.project_config("alpha"), cfg))
+    out = config.output_dir
+    write_dataset(out)
+    apply_eligibility_decisions(config, [{"paper_id": "p1", "decision": "include"}], "ai")
+    (out / "01_search" / "search_log.json").write_text('{"previous": true}', encoding="utf-8")
+    records = (out / "01_search" / "all_records.json").read_bytes()
+    state = (out / "review_state.json").read_text(encoding="utf-8")
+    before = _snapshot(out)
+    _offline(monkeypatch)
+
+    outcome = pipeline.search_step(config, replace_downstream=True)
+    assert outcome["status"] == "failed" and outcome["total"] == 0
+    assert "previous search results" in outcome["error"] and outcome["warnings"]
+    assert (out / "01_search" / "all_records.json").read_bytes() == records
+    assert (out / "review_state.json").read_text(encoding="utf-8") == state
+    assert json.loads((out / "01_search" / "search_log.json").read_text()) == {"previous": True}
+    assert (out / "01_search" / "search_log.failed.json").is_file()
+    after = _snapshot(out)
+    after["01_search"].remove("search_log.failed.json")
+    assert after == before
+
+
+def test_failed_search_fails_the_pipeline_run_with_a_clear_error(workspace, monkeypatch):
+    import time
+
+    from api.session import SessionManager
+    from prisma_review.config import Config
+
+    config = Config.load(workspace.project_config("alpha"))
+    write_dataset(config.output_dir)
+    _offline(monkeypatch)
+    session = SessionManager(state_file=config.state_file)
+    session.start_full_pipeline(config)
+    deadline = time.time() + 30
+    while session.is_running and time.time() < deadline:
+        time.sleep(0.05)
+    progress = session.get_progress()
+    assert progress["status"] == "failed"
+    assert "search" in progress["progress_message"] and "kept" in progress["progress_message"]
+    assert progress["completed_steps"] == []
+    assert len(load_papers(config.screen_dir / "screen_results.json")) == 6
+
+
+def test_a_search_that_matches_nothing_is_not_a_failure(workspace, monkeypatch):
+    from prisma_review import pipeline
+    from prisma_review.config import Config
+    from prisma_review.search import runner
+
+    config = Config.load(workspace.project_config("alpha"))
+    write_dataset(config.output_dir)
+
+    def nothing(source, terms, start, end, config, filters, status, should_cancel):
+        status.api_total = 0
+        return []
+
+    monkeypatch.setattr(runner, "_run_backend", nothing)
+    outcome = pipeline.search_step(config, replace_downstream=True)
+    assert outcome["status"] == "ok" and outcome["total"] == 0
+    assert load_papers(config.search_dir / "all_records.json") == []
+
+
+def test_cli_search_reports_the_failure_and_run_all_stops(workspace, monkeypatch, capsys):
+    from prisma_review import cli
+    from prisma_review.config import Config
+
+    config = Config.load(workspace.project_config("alpha"))
+    write_dataset(config.output_dir)
+    _offline(monkeypatch)
+    cli.cmd_run_all(config)
+    out = capsys.readouterr().out
+    assert "[SEARCH] Failed." in out and "Pipeline stopped" in out and "[DEDUP]" not in out
+    assert len(load_papers(config.search_dir / "all_records.json")) == 7

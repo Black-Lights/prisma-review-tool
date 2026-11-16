@@ -33,6 +33,21 @@ import functools
 print = functools.partial(print, file=sys.stderr)
 
 SEARCH_LOG_NAME = "search_log.json"
+# Log of a search that returned no record because requests failed or were
+# skipped: kept apart so search_log.json keeps describing all_records.json.
+FAILED_SEARCH_LOG_NAME = "search_log.failed.json"
+
+
+def search_failed(entries: list[dict]) -> bool:
+    """True when a search returned no record and some request failed or was skipped.
+
+    Such a search has nothing to replace the previous results with (a network
+    outage, a used-up API budget, a rejected key). A search whose requests all
+    succeeded and simply matched nothing is not a failure.
+    """
+    return (bool(entries)
+            and sum(int(e.get("after_post_filter") or 0) for e in entries) == 0
+            and any(e.get("status") in ("failed", "skipped") for e in entries))
 
 
 def result_key(source: str, query_index: int, query_name: str) -> str:
@@ -75,6 +90,8 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
     partial, failed, skipped, cancelled. ``should_cancel`` is polled between
     pages and during retry waits; once it returns True the remaining pairs are
     reported as cancelled and ``01_search/search_log.json`` is left as it was.
+    A search that :func:`search_failed` is logged to ``search_log.failed.json``
+    instead, so the log of the search the saved records came from stays.
 
     Raises ValueError when the configured date range is not a valid range.
     """
@@ -199,6 +216,7 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
             "searches": searches,
             "totals": {"records": sum(by_source.values()), "by_source": by_source},
         }
-        atomic_write_json(config.search_dir / SEARCH_LOG_NAME, log, ensure_ascii=False)
+        name = FAILED_SEARCH_LOG_NAME if search_failed(searches) else SEARCH_LOG_NAME
+        atomic_write_json(config.search_dir / name, log, ensure_ascii=False)
 
     return results

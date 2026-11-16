@@ -29,7 +29,7 @@ from .dedup import deduplicate, save_dedup_log
 from .models import load_papers, save_papers
 from .search.filters import filter_warnings
 from .search.query_plan import query_warnings
-from .search.runner import run_all_searches
+from .search.runner import FAILED_SEARCH_LOG_NAME, run_all_searches, search_failed
 from .stats import count_by_source
 from .storage import atomic_write_json, project_lock, read_json, update_state
 
@@ -268,10 +268,13 @@ def search_step(config: Config, *, should_cancel: Callable[[], bool] | None = No
 
     Counts records per source from each paper's ``source``. Requests that
     failed or returned partial results become warnings, as does a source
-    that returned nothing. A cancelled search saves nothing, so the previous
-    results stay. With ``replace_downstream`` (the web and MCP pipelines) the
-    old dedup, screening, eligibility and export results are removed once the
-    new records are in. Returns {status, total, sources, warnings}.
+    that returned nothing. A cancelled search saves nothing, and neither does
+    a failed one (no record came back and some request failed or was skipped,
+    e.g. the network is down): the previous results stay and the status is
+    ``failed`` with an ``error``. With ``replace_downstream`` (the web and MCP
+    pipelines) the old dedup, screening, eligibility and export results are
+    removed once the new records are in. Returns {status, total, sources,
+    warnings} (plus ``error`` when failed).
     """
     status_log: list[dict] = []
     results = run_all_searches(config, status_log=status_log, should_cancel=should_cancel)
@@ -292,6 +295,13 @@ def search_step(config: Config, *, should_cancel: Callable[[], bool] | None = No
     outcome = {"status": "cancelled" if cancelled else "ok", "total": len(papers),
                "sources": counts, "warnings": warnings}
     if cancelled:
+        return outcome
+    if search_failed(status_log):
+        bad = sum(1 for e in status_log if e.get("status") in ("failed", "skipped"))
+        outcome.update(status="failed", error=(
+            f"The search returned no records: {bad} of {len(status_log)} requests failed or were "
+            f"skipped (see the warnings and 01_search/{FAILED_SEARCH_LOG_NAME}). The previous "
+            f"search results and everything based on them were kept."))
         return outcome
 
     with project_lock(config.output_dir):

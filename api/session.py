@@ -409,13 +409,15 @@ class SessionManager:
         self._add_warnings(pipeline.pre_search_warnings(config))
 
         # A new search replaces the project's later results, but only once it
-        # has finished: a cancelled search keeps the previous ones.
+        # has finished: a cancelled or failed search keeps the previous ones.
         outcome = pipeline.search_step(config, should_cancel=self._is_cancelled,
                                        replace_downstream=True)
         self._add_warnings(outcome["warnings"])
         if outcome["status"] == "cancelled":
             return {**outcome, "message": "Pipeline cancelled during search; "
                                           "the previous results were kept"}
+        if outcome["status"] == "failed":
+            raise pipeline.StepError(outcome["error"])
 
         msg = f"Search complete: {outcome['total']} records found"
         if self.warnings:
