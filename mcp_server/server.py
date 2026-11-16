@@ -846,8 +846,10 @@ def set_review_config(
 def list_projects() -> str:
     """List all review projects, marking the active one (read-only).
 
-    The active project decides which config.yaml every tool here reads and
-    writes, unless PRISMA_CONFIG pins one (`pinned_config`).
+    `in_use` (top level, and per project) is the review every tool here reads
+    and writes: the active project, unless PRISMA_CONFIG pins a config
+    (`pinned_config`). When pinned, `active` is only the web app's selection
+    and switch_project is disabled.
     """
     active: str | None = None
     active_error: str | None = None
@@ -857,6 +859,9 @@ def list_projects() -> str:
         active_error = str(exc)
     if active is None and active_error is None and workspace.pinned_config_path() is None:
         active_error = workspace.no_active_project_message()
+
+    pin = workspace.pinned_config_path()
+    in_use = workspace.project_for_config(pin) if pin is not None else active
 
     projects = []
     for entry_name in workspace.list_project_names():
@@ -872,16 +877,20 @@ def list_projects() -> str:
             "name": entry_name,
             "display_name": display_name,
             "is_active": entry_name == active,
+            "in_use": entry_name == in_use,
             "ready": ready,
         })
-    result: dict[str, Any] = {"active": active, "projects": projects}
-    if active_error:
+    result: dict[str, Any] = {"active": active, "in_use": in_use, "projects": projects}
+    if active_error and pin is None:
         result["active_error"] = active_error
     notice = workspace.root_config_notice()
     result["warnings"] = [notice] if notice else []
-    pin = workspace.pinned_config_path()
     if pin is not None:
         result["pinned_config"] = str(pin)
+        result["warnings"].append(
+            f"PRISMA_CONFIG pins the config: every tool uses {pin}"
+            + (f" (project '{in_use}')" if in_use else "")
+            + ", whatever project is active in the web app. switch_project is disabled.")
     return _dumps(result)
 
 

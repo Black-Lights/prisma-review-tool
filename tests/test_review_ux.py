@@ -238,3 +238,23 @@ def test_windows_reserved_names_are_not_project_names(api_client, mcp_server, wo
 def test_names_that_only_start_like_a_device_are_fine(api_client, workspace):
     for name in ("con-review", "auxiliary", "com10", "null"):
         assert api_client.post("/api/projects", json={"name": name}).status_code == 200, name
+
+
+# --------------------------------------------------------------------------- R-28
+
+
+def test_list_projects_marks_the_pinned_review_as_in_use(mcp_server, bare_workspace, monkeypatch):
+    bare_workspace.add_project("alpha", active=True)
+    beta = bare_workspace.add_project("beta", active=False)
+    listing = j(mcp_server.list_projects())
+    assert listing["in_use"] == "alpha" and "pinned_config" not in listing
+    assert [p["in_use"] for p in listing["projects"]] == [True, False]
+
+    monkeypatch.setenv("PRISMA_CONFIG", str(beta))
+    assert j(mcp_server.get_review_config())["project"] == "beta"
+    listing = j(mcp_server.list_projects())
+    assert listing["in_use"] == "beta" and listing["active"] == "alpha"
+    by_name = {p["name"]: p for p in listing["projects"]}
+    assert by_name["beta"]["in_use"] and not by_name["alpha"]["in_use"]
+    assert any("PRISMA_CONFIG pins the config" in w and "switch_project is disabled" in w
+               for w in listing["warnings"])

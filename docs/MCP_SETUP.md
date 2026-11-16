@@ -137,7 +137,7 @@ Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a cr
 |------|--------------|
 | `get_review_config` | Shows the project, config path, how it was chosen, queries, screening rules, filters, `ready`/`problems`, `warnings`, and per-source `query_warnings` and `filter_warnings`. Call this first. |
 | `set_review_config` | Changes only the fields you pass (sources, dates, queries, keywords, filters). Validates everything first and writes nothing if a value is invalid. `queries` is a list of `{"name", "terms"}` objects. |
-| `list_projects` | Lists projects, the active one, and `pinned_config` if `PRISMA_CONFIG` is set |
+| `list_projects` | Lists projects, the active one, `in_use` (the review every tool acts on: the active project, or the pinned one) and `pinned_config` if `PRISMA_CONFIG` is set |
 | `switch_project` | Makes another project active (same as the web app's switcher) |
 | `create_project` | Creates a project from the template (API keys carried over) and, by default, switches to it |
 
