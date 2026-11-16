@@ -9,14 +9,26 @@ from packaging.requirements import Requirement
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _requirements(name: str) -> dict[str, Requirement]:
+def _requirements(name: str, python: str = "3.13") -> dict[str, Requirement]:
+    """The requirements that apply on ``python`` (environment markers evaluated)."""
     reqs: dict[str, Requirement] = {}
     for line in (ROOT / name).read_text(encoding="utf-8").splitlines():
         line = line.split("#", 1)[0].strip()
         if line and not line.startswith("-"):
             req = Requirement(line)
+            if req.marker and not req.marker.evaluate({"python_version": python}):
+                continue
             reqs[req.name.lower()] = req
     return reqs
+
+
+def test_python_310_still_has_installable_floors():
+    # pillow 13 and filelock 4.2.1 need Python 3.11+; a 3.10 floor that high
+    # made "pip install -r requirements.txt" fail outright on 3.10.
+    old = _requirements("requirements.txt", python="3.10")
+    assert old["pillow"].specifier.contains("12.0.0")
+    assert old["filelock"].specifier.contains("3.20.0")
+    assert "numpy" in old and "mcp" in old
 
 
 def test_mcp_pinned_below_2():

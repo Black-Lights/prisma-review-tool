@@ -16,10 +16,14 @@ rapidfuzz>=3.0.0
 
 # Diagram
 matplotlib>=3.7.0
-pillow>=13.0.0
+# pillow 13 and filelock 4.2.1 need Python 3.11+. Python 3.10 (end of life since
+# October 2026) gets the newest releases that still install there.
+pillow>=13.0.0; python_version >= "3.11"
+pillow>=10.0; python_version < "3.11"
 
 # Safe concurrent writes (web API and MCP server share the same files)
-filelock>=4.2.1
+filelock>=4.2.1; python_version >= "3.11"
+filelock>=3.12; python_version < "3.11"
 
 # MCP Server (mcp 2.x removed mcp.server.fastmcp, which the server is built on)
 mcp>=1.30,<2
