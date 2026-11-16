@@ -171,6 +171,24 @@ def test_project_export_leaves_out_api_keys(api_client, workspace):
     assert FAKE_SCOPUS_KEY in workspace.project_config("alpha").read_text(encoding="utf-8")
 
 
+def test_project_export_leaves_out_the_run_owner(api_client, workspace):
+    # review_state.json records the hostname and pid of the process running the
+    # pipeline; a shared export should not carry the machine's name.
+    import socket
+
+    state = workspace.projects_dir / "alpha" / "prisma_output" / "review_state.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"pipeline": {
+        "status": "completed", "owner_host": socket.gethostname(), "owner_pid": 4242,
+        "heartbeat_at": "2026-11-16T20:00:00+00:00"}, "screen": {"included": 3}}), encoding="utf-8")
+
+    members = _zip_members(api_client.get("/api/projects/export/alpha").content)
+    exported = json.loads(members["prisma_output/review_state.json"])
+    assert "owner_host" not in exported["pipeline"] and "owner_pid" not in exported["pipeline"]
+    assert exported["pipeline"]["status"] == "completed" and exported["screen"] == {"included": 3}
+    assert "owner_host" in json.loads(state.read_text(encoding="utf-8"))["pipeline"]  # disk untouched
+
+
 def test_import_fills_keys_from_the_current_project(api_client, workspace):
     import yaml
 

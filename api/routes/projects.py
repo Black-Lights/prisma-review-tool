@@ -8,6 +8,7 @@ used to reach rmtree and the zip export.
 from __future__ import annotations
 
 import io
+import json
 import re
 import shutil
 import zipfile
@@ -239,13 +240,28 @@ def _without_secrets(path: Path) -> bytes | None:
                           sort_keys=False).encode("utf-8")
 
 
+def _state_without_owner(path: Path) -> bytes | None:
+    """review_state.json without the run owner's hostname and pid, or None to copy it as is."""
+    try:
+        state = read_json(path, default=None)
+    except (OSError, ValueError):
+        return None
+    block = state.get("pipeline") if isinstance(state, dict) else None
+    if not isinstance(block, dict):
+        return None
+    for field in ("owner_host", "owner_pid"):
+        block.pop(field, None)
+    return json.dumps(state, indent=2).encode("utf-8")
+
+
 @router.get("/export/{name}")
 def export_project(name: str):
-    """Export a project as a .zip file, without API keys or the contact email.
+    """Export a project as a .zip file, without API keys, the contact email or the hostname.
 
     config.yaml (and any backup of it) goes into the archive with every
     ``api_keys`` value blanked: an export is meant to be shared or backed up.
-    Importing it fills the keys in from the current project.
+    Importing it fills the keys in from the current project. review_state.json
+    goes in without the run owner's hostname and pid.
     """
     name = _valid_name(name)
     project_dir = get_projects_dir() / name
@@ -264,6 +280,11 @@ def export_project(name: str):
                 if cleaned is not None:
                     zf.writestr(arcname, cleaned)
                 continue
+            if file_path.name == "review_state.json":
+                cleaned = _state_without_owner(file_path)
+                if cleaned is not None:
+                    zf.writestr(arcname, cleaned)
+                    continue
             zf.write(file_path, arcname)
     buf.seek(0)
 
