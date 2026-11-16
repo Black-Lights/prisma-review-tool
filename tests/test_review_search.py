@@ -166,3 +166,30 @@ def test_the_arxiv_pdf_is_still_found_through_the_alternative_doi(tmp_path, monk
     monkeypatch.setattr(download.time, "sleep", lambda s: None)
     download.download_papers([kept], tmp_path)
     assert seen == ["https://arxiv.org/pdf/2302.02094.pdf"]
+
+
+# --------------------------------------------------------------------------- R-26
+
+
+def test_a_quoted_wildcard_phrase_in_a_boolean_query_is_flagged_for_openalex():
+    from prisma_review.search.query_plan import plan_query
+
+    def flagged(query):
+        return any("refuses a wildcard inside a quoted phrase" in w
+                   for w in plan_query("openalex", "q", query).warnings)
+
+    assert flagged('("remote sens*" OR "earth observation") AND crop')
+    assert not flagged('"remote sens*"')                 # the whole search: accepted
+    assert not flagged('remote AND sens* AND crop')      # unquoted: accepted
+    assert not flagged('"sens*" AND crop')               # one word
+    assert not flagged('"remote sensing" AND crop*')     # wildcard outside the phrase
+
+
+def test_get_review_config_shows_the_quoted_wildcard_warning(mcp_server, workspace):
+    from conftest import make_config, write_config
+
+    cfg = make_config()
+    cfg["search"]["queries"] = [{"name": "rs", "terms": '("remote sens*" OR "earth observation") AND crop'}]
+    write_config(workspace.project_config("alpha"), cfg)
+    out = json.loads(mcp_server.get_review_config())
+    assert any("quoted phrase" in w for w in out["query_warnings"])

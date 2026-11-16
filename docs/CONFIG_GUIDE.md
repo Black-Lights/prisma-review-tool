@@ -24,7 +24,7 @@ queries:
 - Keep queries focused: better to have 3-4 specific queries than 1 huge one
 - Give each query its own `name`: the report attributes papers to queries by name
 
-**Wildcards** (`predict*`, `wom?n`): OpenAlex accepts them only in its unstemmed exact search, so the tool switches OpenAlex to that search for the whole query (the other terms then match only their exact spelling: `network` no longer finds `networks`). Semantic Scholar supports `*` but not `?`, Crossref ignores both, and arXiv does not document them. Stemmed search already matches word endings (`prediction` finds `predictions`), so most queries do not need wildcards.
+**Wildcards** (`predict*`, `wom?n`): OpenAlex accepts them only in its unstemmed exact search, so the tool switches OpenAlex to that search for the whole query (the other terms then match only their exact spelling: `network` no longer finds `networks`). Semantic Scholar supports `*` but not `?`, Crossref ignores both, and arXiv does not document them. Stemmed search already matches word endings (`prediction` finds `predictions`), so most queries do not need wildcards. Do not put a wildcard inside a quoted phrase of several words (`"remote sens*"`) in a query with other terms: OpenAlex refuses it (HTTP 400) and that query fails there. Write the words without quotes (`remote AND sens*`) or give the phrase a query of its own; `get_review_config` and the pipeline warn about it.
 
 ## Screening Keywords
 

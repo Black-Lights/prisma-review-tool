@@ -753,7 +753,8 @@ def set_review_config(
         queries: List of {"name", "terms"} with unique names; terms is a Boolean
             string, e.g. '("crop yield" OR harvest) AND "remote sensing"'.
             Every source but Crossref runs it as Boolean; Crossref uses plain
-            terms without NOT. A * wildcard makes OpenAlex search unstemmed.
+            terms without NOT. A * wildcard makes OpenAlex search unstemmed
+            (not inside a quoted phrase).
             A JSON string of the list is also accepted.
         include_keywords: Screening terms matched in title and abstract.
         exclude_keywords: Any match excludes the paper.

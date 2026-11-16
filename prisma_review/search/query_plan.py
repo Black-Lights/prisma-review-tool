@@ -371,6 +371,18 @@ def plan_query(source: str, query_name: str, query: str, *,
                 f"exact search ({param}); the other terms then match only their exact spelling "
                 f"(e.g. 'network' no longer matches 'networks')."
             )
+        tokens = _tokens(query)
+        if len(tokens) > 1:
+            # OpenAlex answers HTTP 400 to a wildcard inside a quoted phrase of
+            # several words unless that phrase is the whole search.
+            for kind, text in tokens:
+                if kind == "PHRASE" and " " in text and _WILDCARD_RE.search(text):
+                    warnings.append(
+                        f'{label}: OpenAlex refuses a wildcard inside a quoted phrase ("{text}") '
+                        f"when the query has other terms (HTTP 400), so this query fails on "
+                        f"OpenAlex. Write the words without quotes (e.g. remote AND sens*) or give "
+                        f"the phrase a query of its own."
+                    )
         size = len(urlencode({param: value}))
         if size > OPENALEX_URL_LIMIT - 500:
             warnings.append(
