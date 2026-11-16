@@ -220,3 +220,21 @@ def test_by_query_reports_the_queries_of_the_search_that_ran(api_client, workspa
     _write_search_log(out, [{"index": 0, "name": "main", "terms": '"crop yield" AND prediction'}])
     body = api_client.get("/api/reports/by-query").json()
     assert not any("changed after" in n for n in body["notes"])
+
+
+# --------------------------------------------------------------------------- R-11
+
+
+@pytest.mark.parametrize("name", ["nul", "NUL", "con", "aux", "com1", "LPT9", "prn"])
+def test_windows_reserved_names_are_not_project_names(api_client, mcp_server, workspace, name):
+    resp = api_client.post("/api/projects", json={"name": name})
+    assert resp.status_code in (400, 422), resp.text
+    assert "reserves" in resp.text and "already exists" not in resp.text
+    out = j(mcp_server.create_project(name))
+    assert "error" in out and "reserves" in out["error"]
+    assert sorted(p.name for p in workspace.projects_dir.iterdir() if p.is_dir()) == ["alpha"]
+
+
+def test_names_that_only_start_like_a_device_are_fine(api_client, workspace):
+    for name in ("con-review", "auxiliary", "com10", "null"):
+        assert api_client.post("/api/projects", json={"name": name}).status_code == 200, name

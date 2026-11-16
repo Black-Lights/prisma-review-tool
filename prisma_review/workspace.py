@@ -118,16 +118,28 @@ def _same_path(a: Path, b: Path) -> bool:
     return os.path.normcase(str(a)) == os.path.normcase(str(b))
 
 
+# Device names Windows reserves in every folder: "nul" cannot be created at all
+# (and looks like an existing folder), the others break Explorer and older Windows.
+_RESERVED_NAME = re.compile(r"(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])")
+
+
 def validate_project_name(name: str, root: str | Path | None = None) -> str:
     """Return ``name`` if it is a project folder slug directly inside projects/, else raise.
 
-    Rejects traversal ("../x", "..\\x"), absolute paths, drive letters and any
-    other name that is not exactly its own slug.
+    Rejects traversal ("../x", "..\\x"), absolute paths, drive letters, any
+    other name that is not exactly its own slug, and the device names Windows
+    reserves (con, prn, aux, nul, com0-9, lpt0-9) on every platform, so a
+    projects folder stays usable when it moves between systems.
     """
     if not isinstance(name, str) or not name or name != slugify(name):
         raise InvalidProjectName(
             f"Invalid project name {name!r}: use the project's folder name as listed "
             f"by list_projects (lowercase letters, digits and hyphens)."
+        )
+    if _RESERVED_NAME.fullmatch(name):
+        raise InvalidProjectName(
+            f"Invalid project name {name!r}: Windows reserves it for a device, so it cannot be "
+            f"a folder name. Choose another name (for example '{name}-review')."
         )
     base = projects_dir(root).resolve()
     if not _same_path((base / name).resolve().parent, base):
