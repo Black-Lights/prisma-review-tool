@@ -29,7 +29,7 @@ from starlette.responses import PlainTextResponse  # noqa: E402
 
 from prisma_review import __version__, workspace  # noqa: E402
 from api.deps import init_config
-from api.routes import papers, pipeline, reports, config_routes, projects, events
+from api.routes import papers, pipeline, reports, config_routes, projects, events, mcp_info
 
 
 @asynccontextmanager
@@ -174,6 +174,7 @@ app.include_router(pipeline.router, prefix="/api")
 app.include_router(config_routes.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
+app.include_router(mcp_info.router, prefix="/api")
 
 
 @app.get("/api/health")

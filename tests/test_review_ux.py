@@ -144,3 +144,33 @@ def test_cli_explicit_config_and_a_config_in_another_folder_still_win(bare_works
     assert cli.resolve_cli_config(None) == other.resolve()
     monkeypatch.chdir(bare_workspace.root)
     assert cli.resolve_cli_config(None) == bare_workspace.project_config("alpha")
+
+
+# --------------------------------------------------------------------------- R-24
+
+
+def test_mcp_setup_endpoint_gives_the_stdio_command_and_every_tool(api_client, mcp_server):
+    import asyncio
+    from pathlib import Path
+
+    body = api_client.get("/api/mcp/setup").json()
+    assert body["transport"] == "stdio"
+    assert body["script"].endswith("/run_mcp.py") and Path(body["script"]).is_file()
+    assert Path(body["command"]).is_file() and Path(body["cwd"]).is_dir()
+    assert "\\" not in body["command"] + body["script"] + body["cwd"]  # forward slashes for JSON configs
+    assert body["active_config"].endswith("projects/alpha/config.yaml")
+
+    registered = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
+    assert {t["name"] for t in body["tools"]} == registered and len(registered) >= 21
+    assert all(t["description"] for t in body["tools"])
+    screen = next(t for t in body["tools"] if t["name"] == "screen_paper")
+    assert "maybe" not in screen["description"]
+
+
+def test_the_mcp_settings_page_has_no_sse_endpoint():
+    from pathlib import Path
+
+    page = (Path(__file__).resolve().parent.parent / "web" / "src" / "app" / "mcp-settings"
+            / "page.tsx").read_text(encoding="utf-8")
+    assert "/mcp/sse" not in page and '"sse"' not in page
+    assert "fetchMcpSetup" in page

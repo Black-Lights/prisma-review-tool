@@ -1,4 +1,5 @@
 import type { PrismaFlow } from "./flow";
+import type { McpSetup } from "./mcpSetup";
 
 /** Base URL of the FastAPI backend. The only place the env var is read. */
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -223,6 +224,9 @@ export const fetchConfig = () => request<ConfigData>("/api/config");
 export const updateConfig = (data: ConfigData) =>
   request<{ status: string; _version: string | null }>("/api/config", { method: "PUT", body: JSON.stringify(data) });
 export const fetchConfigReadiness = () => request<ConfigReadiness>("/api/config/readiness");
+
+// MCP server setup (paths for this install and the tools the server registers)
+export const fetchMcpSetup = () => request<McpSetup>("/api/mcp/setup");
 
 // Types
 export interface StatsResponse {
