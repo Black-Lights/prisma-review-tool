@@ -181,7 +181,7 @@ Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a cr
 
 OpenAlex, Scopus, Semantic Scholar and arXiv run your Boolean query (`AND`/`OR`/`NOT` in capitals, quoted phrases, parentheses). OpenAlex and Scopus search title, abstract and keywords; Semantic Scholar title and abstract. Crossref has no Boolean search: it ranks plain terms by relevance and cannot exclude `NOT` terms. `get_review_config` lists what each source loses under `query_warnings`; see the table in [CONFIG_GUIDE.md](CONFIG_GUIDE.md#sources).
 
-Each query and source reports its outcome (`ok`, `partial`, `failed`, `skipped`, `cancelled`); `get_pipeline_progress` shows anything other than `ok` as a warning, so a search that stopped early is never mistaken for a small result. The exact searches run are saved in `01_search/search_log.json` for your methods section (PRISMA 2020 item 7).
+Each query and source reports its outcome (`ok`, `partial`, `failed`, `skipped`, `cancelled`); `get_pipeline_progress` shows anything other than `ok` as a warning, so a search that stopped early is never mistaken for a small result. A search that matched more records than `max_results_per_query` lets through is a warning too ("kept 500 of 2,311 matches"). The exact searches run are saved in `01_search/search_log.json` for your methods section (PRISMA 2020 item 7).
 
 A free OpenAlex key (`api_keys.openalex_key`) raises OpenAlex's daily request budget 10 times and is needed to page past 10,000 results per query. `get_review_config` and `start_pipeline` warn when the key is missing. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys).
 

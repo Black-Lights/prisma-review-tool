@@ -34,7 +34,7 @@ def assert_closes(flow: dict) -> None:
 def test_stats_flow_of_a_fresh_review(api_client, workspace):
     write_dataset(workspace.output_dir("alpha"))
     flow = api_client.get("/api/stats").json()["flow"]
-    assert flow["identified"] == {"total": 7, "by_source": {"openalex": 7}}
+    assert flow["identified"] == {"total": 7, "by_source": {"openalex": 7}, "capped_searches": 0}
     assert flow["removed_before_screening"] == {
         "duplicates": 1, "automation_ineligible": 1,
         "automation_by_reason": {"keyword_rules": 1, "required_keywords": 0}}

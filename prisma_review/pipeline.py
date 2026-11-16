@@ -351,20 +351,49 @@ def pre_search_warnings(config: Config) -> list[str]:
     return warnings
 
 
+def _cap_text(entry: dict) -> str:
+    kept, total = int(entry.get("retrieved") or 0), int(entry.get("api_total") or 0)
+    text = f"kept {kept:,} of {total:,} matches (search.max_results_per_query)"
+    if entry.get("source") == "crossref":
+        text += ("; Crossref ranks loosely matching records by relevance, so the cap keeps "
+                 "the top-ranked ones")
+    return text
+
+
 def status_warnings(status_log: list[dict]) -> list[str]:
-    """One warning per search request that did not complete normally."""
+    """One warning per search request that did not return every match normally.
+
+    Covers requests that failed, were skipped or returned partial results,
+    searches cut at max_results_per_query (the API matched more records than
+    were kept), and the source's own notes about the result.
+    """
     warnings = []
     for entry in status_log:
         status = entry.get("status")
-        if status in ("ok", "cancelled", None):
+        if status == "cancelled":
             continue
-        text = f"{entry.get('source')}, query '{entry.get('query')}': {status}"
-        if entry.get("error"):
-            text += f": {entry['error']}"
-        if status == "partial" and entry.get("api_total") is not None:
-            text += f" (retrieved {entry.get('retrieved')} of {entry['api_total']})"
-        warnings.append(text)
+        parts = []
+        if status not in ("ok", None):
+            text = str(status)
+            if entry.get("error"):
+                text += f": {entry['error']}"
+            if status == "partial" and entry.get("api_total") is not None:
+                text += f" (retrieved {entry.get('retrieved')} of {entry['api_total']})"
+            parts.append(text)
+        elif entry.get("capped_by_max_results"):
+            parts.append(_cap_text(entry))
+        parts += [note for note in entry.get("notes") or [] if note != entry.get("error")]
+        if parts:
+            warnings.append(f"{entry.get('source')}, query '{entry.get('query')}': "
+                            + "; ".join(parts))
     return warnings
+
+
+def capped_searches(status_log: list[dict]) -> list[dict]:
+    """The (source, query) searches cut at max_results_per_query: {source, query, kept, matches}."""
+    return [{"source": e.get("source"), "query": e.get("query"),
+             "kept": int(e.get("retrieved") or 0), "matches": int(e.get("api_total") or 0)}
+            for e in status_log if e.get("capped_by_max_results")]
 
 
 def _clear_downstream(config: Config) -> None:

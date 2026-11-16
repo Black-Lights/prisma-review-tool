@@ -86,8 +86,8 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
     :func:`result_key`, after the local post-request filters. When
     ``status_log`` is a list, one dict per pair is appended as soon as the
     pair finishes: ``{source, query, query_index, status, error, api_total,
-    retrieved, after_post_filter, executed}`` with ``status`` one of ok,
-    partial, failed, skipped, cancelled. ``should_cancel`` is polled between
+    retrieved, after_post_filter, executed, capped_by_max_results, notes}``
+    with ``status`` one of ok, partial, failed, skipped, cancelled. ``should_cancel`` is polled between
     pages and during retry waits; once it returns True the remaining pairs are
     reported as cancelled and ``01_search/search_log.json`` is left as it was.
     A search that :func:`search_failed` is logged to ``search_log.failed.json``
@@ -171,6 +171,11 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
                 "retrieved": retrieved,
                 "after_post_filter": len(kept),
                 "executed": status.executed,
+                # The API matched more records than max_results_per_query let through.
+                "capped_by_max_results": bool(status.api_total is not None
+                                              and status.api_total > config.max_results
+                                              and retrieved >= config.max_results),
+                "notes": list(status.notes),
             }
             if status_log is not None:
                 status_log.append(dict(entry))
@@ -184,9 +189,6 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
                 "filter_modes": filter_modes(source, filters),
                 "request": status.request,
                 "removed_by_post_filter": retrieved - len(kept),
-                "capped_by_max_results": bool(status.api_total is not None
-                                              and status.api_total > config.max_results
-                                              and retrieved >= config.max_results),
                 "warnings": plan.warnings + source_filter_warnings(source, filters) + status.notes,
                 "started_at": pair_started,
                 "finished_at": _now(),
@@ -212,7 +214,11 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
                 "venues": filters.venues,
             },
             "queries": queries,
-            "complete": all(s["status"] == "ok" for s in searches),
+            # complete: every request finished normally and none was cut at
+            # max_results_per_query (truncated), so the records are every match.
+            "complete": all(s["status"] == "ok" and not s["capped_by_max_results"]
+                            for s in searches),
+            "truncated": any(s["capped_by_max_results"] for s in searches),
             "searches": searches,
             "totals": {"records": sum(by_source.values()), "by_source": by_source},
         }

@@ -172,6 +172,8 @@ Every completed search writes `prisma_output/01_search/search_log.json`, the rec
 
 plus the tool version, the date range, the filters, and each query's terms with a SHA-256 hash, so a later edit of a query is detectable. A cancelled search does not overwrite the log of the last completed one.
 
+`complete` is true only when every request finished normally and no search was cut at `max_results_per_query`; `truncated` is true when at least one was. A cut search is also a pipeline warning ("openalex, query 'x': kept 500 of 2,311 matches") and a note under the PRISMA diagram, because "Records identified" then counts the records retrieved, not every match. Raise `max_results_per_query` (or narrow the query) to retrieve them all.
+
 ## Projects and Environment Variables
 
 The web app and the MCP server keep each review in its own folder under `projects/` (`projects/<name>/config.yaml` and `projects/<name>/prisma_output/`). They pick the config in this order:

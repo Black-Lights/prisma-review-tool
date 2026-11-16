@@ -127,12 +127,13 @@ def _screen_from_state(state: dict) -> tuple[dict | None, list[str]]:
 
 
 def compute_flow(state: dict, screen: dict | None = None,
-                 eligibility: dict | None = None) -> dict:
+                 eligibility: dict | None = None, *, capped: list[dict] | None = None) -> dict:
     """The PRISMA 2020 flow numbers.
 
     ``screen`` is a ``screen.screen_summary`` of screen_results.json and
     ``eligibility`` an ``eligibility_summary``; when omitted, the summaries
-    stored in ``state`` are used.
+    stored in ``state`` are used. ``capped`` lists the searches of
+    search_log.json cut at max_results_per_query (a note says so).
     """
     state = state if isinstance(state, dict) else {}
     notes: list[str] = []
@@ -196,6 +197,14 @@ def compute_flow(state: dict, screen: dict | None = None,
                      "re-screen to reconcile them.")
         awaiting_eligibility = 0
 
+    if capped:
+        worst = max(capped, key=lambda c: _int(c.get("api_total")) - _int(c.get("retrieved")))
+        notes.append(
+            f"Records identified are the records retrieved, not every match: {len(capped)} "
+            f"search(es) matched more records than search.max_results_per_query let through "
+            f"(largest: {worst.get('source')}, query '{worst.get('query')}', "
+            f"{_int(worst.get('retrieved')):,} of {_int(worst.get('api_total')):,}). "
+            f"See 01_search/search_log.json.")
     if screen is None:
         if awaiting_screening:
             notes.append(f"Screening has not run yet: the {awaiting_screening} records left after "
@@ -216,7 +225,8 @@ def compute_flow(state: dict, screen: dict | None = None,
         notes.append(f"{awaiting_eligibility} reports are still awaiting the eligibility assessment.")
 
     return {
-        "identified": {"total": identified, "by_source": by_source},
+        "identified": {"total": identified, "by_source": by_source,
+                       "capped_searches": len(capped or [])},
         "removed_before_screening": {
             "duplicates": duplicates,
             "automation_ineligible": automation,
@@ -276,8 +286,13 @@ def project_stats(config: Any, state: dict | None = None) -> dict:
         stored = state.get("eligibility")
         eligibility = stored if isinstance(stored, dict) else {}
 
+    log = read_json(config.search_dir / "search_log.json", default=None)
+    searches = log.get("searches") if isinstance(log, dict) else None
+    capped = ([s for s in searches if isinstance(s, dict) and s.get("capped_by_max_results")]
+              if isinstance(searches, list) else [])
+
     return {"screen": screen, "eligibility": eligibility,
-            "flow": compute_flow(state, screen_input, elig_input)}
+            "flow": compute_flow(state, screen_input, elig_input, capped=capped)}
 
 
 def project_flow(config: Any, state: dict | None = None) -> dict:

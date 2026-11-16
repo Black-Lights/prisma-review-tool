@@ -7,7 +7,8 @@
  */
 
 export interface PrismaFlow {
-  identified: { total: number; by_source: Record<string, number> };
+  /** capped_searches: searches cut at max_results_per_query (see the notes). */
+  identified: { total: number; by_source: Record<string, number>; capped_searches?: number };
   removed_before_screening: {
     duplicates: number;
     automation_ineligible: number;
