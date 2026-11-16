@@ -18,7 +18,7 @@ import yaml
 
 from .config import Config, load_raw_config, save_raw_config
 from .models import Paper, load_papers, save_papers
-from .storage import atomic_write_text, project_lock, read_text, update_state
+from .storage import atomic_write_text, project_lock, read_json, read_text, update_state
 
 # Reason recorded when a paper is excluded solely by the required-keywords gate.
 NO_REQUIRED_KEYWORD_REASON = "no required keyword in title/abstract"
@@ -232,6 +232,32 @@ def _set_eligibility_block(state: dict, summary: dict | None) -> None:
         state.pop("eligibility", None)
 
 
+def id_moves(config: Config) -> dict[str, str]:
+    """{old id: kept id} for records a re-run of dedup merged into another (02_dedup/id_moves.json)."""
+    try:
+        moves = read_json(config.dedup_dir / "id_moves.json", default={})
+    except (OSError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in moves.items()} if isinstance(moves, dict) else {}
+
+
+def _follow_moves(results: list[Paper], moves: dict[str, str]) -> list[Paper]:
+    """Re-key eligibility decisions whose paper was merged into another record by dedup.
+
+    A decision moves only when the kept record has none of its own.
+    """
+    if not moves:
+        return results
+    taken = {p.id for p in results}
+    for p in results:
+        target = moves.get(p.id)
+        if target and target not in taken:
+            taken.discard(p.id)
+            p.id = target
+            taken.add(target)
+    return results
+
+
 def _reconcile_eligibility(config: Config, first_pass: list[Paper]) -> tuple[dict | None, int]:
     """Match the eligibility files to the papers included at screening now.
 
@@ -242,7 +268,7 @@ def _reconcile_eligibility(config: Config, first_pass: list[Paper]) -> tuple[dic
     path = config.eligibility_dir / "eligibility_results.json"
     if not path.exists():
         return None, 0
-    results = load_papers(path)
+    results = _follow_moves(load_papers(path), id_moves(config))
     _save_eligibility_files(config, results, first_pass)
     return eligibility_summary(first_pass, results), set_aside_count(first_pass, results)
 
@@ -434,9 +460,21 @@ def rescreen(config: Config, min_include_hits: int | None = None, *,
             p.screen_decision = p.screen_reason = p.screen_method = None
         screen_by_rules(papers, config.include_keywords, config.exclude_keywords,
                         hits, config.required_keywords)
+        # Decisions about records that a re-run of dedup merged into another one
+        # go to the kept record (when it has none of its own); manual first.
+        moved_from: dict[str, list[Paper]] = {}
+        for old, new in id_moves(config).items():
+            prev = previous.get(old)
+            if prev is not None:
+                moved_from.setdefault(new, []).append(prev)
         kept = dict.fromkeys(KEPT_METHODS, 0)
         for p in papers:
             prev = previous.get(p.id)
+            if prev is None or prev.screen_method not in KEPT_METHODS or not prev.screen_decision:
+                carried = [m for m in moved_from.get(p.id, [])
+                           if m.screen_method in KEPT_METHODS and m.screen_decision]
+                carried.sort(key=lambda m: KEPT_METHODS.index(m.screen_method))
+                prev = carried[0] if carried else prev
             if prev is not None and prev.screen_method in KEPT_METHODS and prev.screen_decision:
                 p.screen_decision, p.screen_reason = prev.screen_decision, prev.screen_reason
                 p.screen_method = prev.screen_method

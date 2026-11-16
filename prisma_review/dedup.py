@@ -28,14 +28,18 @@ _BORDERLINE_SCORE = 85
 _CHUNK_ROWS = 1000
 
 
-def _pick_canonical(papers: list[Paper]) -> Paper:
+def _pick_canonical(papers: list[Paper], prefer_ids: frozenset[str] | set[str] = frozenset()) -> Paper:
     """Pick the record to keep: the most complete one, source priority as tie-break.
 
-    An abstract matters most (keyword rules and AI screening read it), then a
+    A record whose id is in ``prefer_ids`` (kept by an earlier dedup run, so
+    screening and eligibility decisions are keyed to it) always wins: the
+    other records fill its gaps, so nothing is lost by keeping it. Otherwise
+    an abstract matters most (keyword rules and AI screening read it), then a
     DOI (dedup, download), then authors.
     """
     def score(p: Paper) -> tuple:
         return (
+            1 if p.id in prefer_ids else 0,
             1 if (p.abstract or "").strip() else 0,
             1 if p.doi else 0,
             1 if p.authors else 0,
@@ -150,8 +154,14 @@ def _title_clusters(bucket: list[Paper], fuzzy_threshold: int) -> list[list[int]
 
 
 def deduplicate(papers: list[Paper], doi_match: bool = True,
-                fuzzy_threshold: int = 90) -> tuple[list[Paper], list[dict]]:
-    """Remove duplicates. Returns (unique_papers, duplicate_log)."""
+                fuzzy_threshold: int = 90,
+                prefer_ids: frozenset[str] | set[str] = frozenset()) -> tuple[list[Paper], list[dict]]:
+    """Remove duplicates. Returns (unique_papers, duplicate_log).
+
+    ``prefer_ids``: ids to keep as the canonical record of their group when
+    possible (the records a previous run kept), so re-running dedup does not
+    move decisions to other ids.
+    """
     duplicate_log: list[dict] = []
     removed: set[str] = set()
     by_id = {p.id: p for p in papers}
@@ -177,7 +187,7 @@ def deduplicate(papers: list[Paper], doi_match: bool = True,
 
         for doi, group in doi_groups.items():
             if len(group) > 1:
-                canonical = _pick_canonical(group)
+                canonical = _pick_canonical(group, prefer_ids)
                 _absorb(canonical, group)
                 for p in group:
                     if p is not canonical:
@@ -195,7 +205,7 @@ def deduplicate(papers: list[Paper], doi_match: bool = True,
     for year, bucket in year_buckets.items():
         for members in _title_clusters(bucket, fuzzy_threshold):
             group = [bucket[i] for i in members]
-            canonical = _pick_canonical(group)
+            canonical = _pick_canonical(group, prefer_ids)
             _absorb(canonical, group)
             for p in group:
                 if p is not canonical:

@@ -432,5 +432,11 @@ class SessionManager:
         # Keeps manual and AI decisions and reconciles the eligibility pass.
         result = rescreen(config, check_running=False, persist_threshold=False)
         self._update(progress_message=f"Screening complete: {result['included']} included")
+        if result["eligibility_set_aside"]:
+            self._add_warnings([
+                f"{result['eligibility_set_aside']} eligibility decision(s) are set aside because "
+                f"their papers are no longer included at screening. They are kept and count "
+                f"again if the papers are included again."])
         return {key: result[key] for key in ("status", "included", "excluded", "maybe",
-                                             "excluded_no_required_keyword")}
+                                             "excluded_no_required_keyword", "kept_manual",
+                                             "kept_ai", "eligibility_set_aside")}

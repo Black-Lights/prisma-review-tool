@@ -31,7 +31,7 @@ from .search.filters import filter_warnings
 from .search.query_plan import query_warnings
 from .search.runner import run_all_searches
 from .stats import count_by_source
-from .storage import project_lock, read_json, update_state
+from .storage import atomic_write_json, project_lock, read_json, update_state
 
 # The owner refreshes its heartbeat this often while a run is going ...
 HEARTBEAT_SECONDS = 5.0
@@ -42,6 +42,10 @@ CANCEL_MESSAGE = "Cancellation requested, stopping after the current step..."
 INTERRUPTED_MESSAGE = "Pipeline was interrupted: the process running it stopped before it finished"
 
 STEPS = ("search", "dedup", "screen")
+
+# 02_dedup/id_moves.json: {old id: kept id} for records a re-run of dedup merged
+# into another one; screening reads it to carry their decisions across.
+ID_MOVES_NAME = "id_moves.json"
 
 
 class RunActiveError(RuntimeError):
@@ -305,16 +309,55 @@ def search_step(config: Config, *, should_cancel: Callable[[], bool] | None = No
     return outcome
 
 
+def _previous_ids(config: Config) -> set[str]:
+    """Ids the current dedup and screening results use (decisions are keyed to them)."""
+    ids = {p.id for p in load_papers(config.dedup_dir / "deduplicated.json")}
+    ids |= {p.id for p in load_papers(config.screen_dir / "screen_results.json")}
+    return ids
+
+
+def _merge_moves(old: dict, new: dict, kept: set[str]) -> dict:
+    """Old and new id moves with chains followed to a record that is still kept."""
+    moves = {**(old if isinstance(old, dict) else {}), **new}
+    out = {}
+    for start in moves:
+        target, seen = moves[start], {start}
+        while target in moves and target not in seen and target not in kept:
+            seen.add(target)
+            target = moves[target]
+        if target in kept and target != start:
+            out[start] = target
+    return out
+
+
 def dedup_step(config: Config) -> dict:
-    """Deduplicate 01_search/all_records.json into 02_dedup. Raises StepError without records."""
+    """Deduplicate 01_search/all_records.json into 02_dedup. Raises StepError without records.
+
+    Re-running dedup over the same records keeps the ids the previous run
+    kept, so screening and eligibility decisions stay attached. A record that
+    was kept before and is now merged into another one is recorded in
+    02_dedup/id_moves.json (old id -> kept id); the next screening carries its
+    manual and AI decisions, and its eligibility decision, across the move.
+    """
     papers = load_papers(config.search_dir / "all_records.json")
     if not papers:
         raise StepError("No papers found. Run search first.")
-    unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold)
+    previous = _previous_ids(config)
+    unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold,
+                              prefer_ids=previous)
     removed = len(papers) - len(unique)
+    kept = {p.id for p in unique}
+    moved = {e["duplicate_id"]: e["canonical_id"] for e in log if e["duplicate_id"] in previous}
     with project_lock(config.output_dir):
         save_papers(unique, config.dedup_dir / "deduplicated.json")
         save_dedup_log(log, config.dedup_dir / "duplicates_log.csv")
+        moves_file = config.dedup_dir / ID_MOVES_NAME
+        moves = _merge_moves(read_json(moves_file, default={}), moved, kept)
+        if moves:
+            atomic_write_json(moves_file, moves, indent=2)
+        else:
+            moves_file.unlink(missing_ok=True)
         update_state(config.state_file, lambda state: state.__setitem__(
             "dedup", {"duplicates_removed": removed, "remaining": len(unique)}))
-    return {"status": "ok", "duplicates_removed": removed, "remaining": len(unique)}
+    return {"status": "ok", "duplicates_removed": removed, "remaining": len(unique),
+            "ids_moved": len(moved)}

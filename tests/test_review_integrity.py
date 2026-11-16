@@ -72,3 +72,107 @@ def test_new_eligibility_decision_keeps_set_aside_ones(mcp_server, workspace):
     j(mcp_server.eligibility_screen_paper("p2", "exclude", "no data"))
     assert set(_elig(out)) == {"p1", "p2"}
     assert [p.id for p in load_papers(out / "03b_eligibility" / "eligible_excluded.json")] == ["p2"]
+
+
+# --------------------------------------------------------------------------- R-2
+
+
+def _dedup_fixture(out, *, previous_kept, screen, eligibility):
+    """all_records with a DOI pair (a: no abstract, b: abstract) and a title pair (x, y)."""
+    from prisma_review.diagram import save_state
+    from prisma_review.models import Paper, save_papers
+
+    def paper(pid, title, abstract="", doi=None, **kw):
+        kw.setdefault("authors", ["Ada Lovelace"])
+        return Paper(id=pid, title=title, abstract=abstract, year=2024, source="openalex",
+                     doi=doi, **kw)
+
+    records = [
+        paper("a", "Hybrid LLM: cost efficient query routing", doi="10.1/hybrid"),
+        paper("b", "Hybrid LLM: cost-efficient query routing", "Routing queries to cheap LLMs. " * 5,
+              doi="10.1/HYBRID"),
+        paper("x", "Online cascade learning for efficient inference over streams",
+              "Cascades of models. " * 5),
+        paper("y", "Online cascade learning for efficient inference over data streams",
+              "Cascades of models for streams. " * 5, authors=["Grace Hopper"]),
+    ]
+    save_papers(records, out / "01_search" / "all_records.json")
+    save_papers([r for r in records if r.id in previous_kept], out / "02_dedup" / "deduplicated.json")
+    screened = [r for r in records if r.id in previous_kept]
+    for r in screened:
+        r.screen_decision, r.screen_method, r.screen_reason = screen.get(r.id, ("maybe", "rule", "rules"))
+    save_papers(screened, out / "03_screen" / "screen_results.json")
+    elig = []
+    for pid, decision in eligibility.items():
+        r = next(r for r in screened if r.id == pid)
+        e = Paper.from_dict(r.to_dict())
+        e.eligibility_decision, e.eligibility_method = decision, "ai"
+        elig.append(e)
+    save_papers(elig, out / "03b_eligibility" / "eligibility_results.json")
+    save_state({"search": {"openalex": 4, "total": 4}}, out / "review_state.json")
+
+
+def test_rerunning_dedup_keeps_the_ids_decisions_are_keyed_to(workspace):
+    from prisma_review import pipeline
+    from prisma_review.config import Config
+    from prisma_review.screen import rescreen
+
+    cfg = make_config("Alpha review")
+    cfg["dedup"]["fuzzy_title_threshold"] = 99
+    config = Config.load(write_config(workspace.project_config("alpha"), cfg))
+    out = workspace.output_dir("alpha")
+    # v1.5 kept "a" (no abstract) for the DOI pair; the new rule prefers "b".
+    _dedup_fixture(out, previous_kept={"a", "x", "y"},
+                   screen={"a": ("include", "ai", "fits")}, eligibility={"a": "include"})
+
+    result = pipeline.dedup_step(config)
+    kept = {p.id: p for p in load_papers(out / "02_dedup" / "deduplicated.json")}
+    assert "a" in kept and "b" not in kept and result["ids_moved"] == 0
+    assert kept["a"].abstract.startswith("Routing queries")  # gap filled from "b"
+    res = rescreen(config, check_running=False, persist_threshold=False)
+    assert res["kept_ai"] == 1 and res["eligibility_set_aside"] == 0
+    assert [p.id for p in load_papers(out / "03b_eligibility" / "eligible_included.json")] == ["a"]
+
+
+def test_decisions_follow_a_record_that_dedup_merges_into_another(workspace):
+    from prisma_review import pipeline
+    from prisma_review.config import Config
+    from prisma_review.screen import rescreen
+
+    cfg = make_config("Alpha review")
+    cfg["dedup"]["fuzzy_title_threshold"] = 85  # x and y now merge
+    config = Config.load(write_config(workspace.project_config("alpha"), cfg))
+    out = workspace.output_dir("alpha")
+    _dedup_fixture(out, previous_kept={"b", "x", "y"},
+                   screen={"y": ("include", "manual", "read it")}, eligibility={"y": "include"})
+
+    result = pipeline.dedup_step(config)
+    kept_ids = {p.id for p in load_papers(out / "02_dedup" / "deduplicated.json")}
+    assert result["ids_moved"] == 1 and len(kept_ids & {"x", "y"}) == 1
+    survivor = (kept_ids & {"x", "y"}).pop()
+    res = rescreen(config, check_running=False, persist_threshold=False)
+    screen = {p.id: p for p in load_papers(out / "03_screen" / "screen_results.json")}
+    assert (screen[survivor].screen_decision, screen[survivor].screen_method) == ("include", "manual")
+    assert res["kept_manual"] == 1 and res["eligibility_set_aside"] == 0
+    assert [p.id for p in load_papers(out / "03b_eligibility" / "eligible_included.json")] == [survivor]
+    # A second dedup run changes nothing.
+    assert pipeline.dedup_step(config)["ids_moved"] == 0
+    assert {p.id for p in load_papers(out / "02_dedup" / "deduplicated.json")} == kept_ids
+
+
+def test_pipeline_screen_step_reports_set_aside_decisions(workspace):
+    from api.session import SessionManager
+    from prisma_review.config import Config
+
+    out = workspace.output_dir("alpha")
+    write_dataset(out)
+    from prisma_review.screen import apply_eligibility_decisions
+    config = Config.load(workspace.project_config("alpha"))
+    apply_eligibility_decisions(config, [{"paper_id": "p1", "decision": "include"}], "ai")
+    cfg = make_config("Alpha review")
+    cfg["screening"]["rules"]["min_include_hits"] = 4
+    config = Config.load(write_config(workspace.project_config("alpha"), cfg))
+    session = SessionManager(state_file=config.state_file)
+    result = session._run_screen(config)
+    assert result["eligibility_set_aside"] == 1 and "kept_ai" in result
+    assert any("set aside" in w for w in session.warnings)
