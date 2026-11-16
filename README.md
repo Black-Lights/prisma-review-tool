@@ -50,6 +50,22 @@ python start.py --host 0.0.0.0  # Listen on your network (default: this computer
 
 > **Requirements:** Python 3.10+ and Node.js 18+ must be installed.
 
+### Updating
+
+```bash
+git pull
+python start.py
+```
+
+`start.py` notices when `requirements.txt`, `api/requirements.txt` or `web/package-lock.json` changed and reinstalls the packages before starting. If you only use the MCP server or the CLI, update the environment yourself after a pull:
+
+```bash
+.venv/Scripts/python -m pip install -r requirements.txt -r api/requirements.txt   # Windows
+.venv/bin/python -m pip install -r requirements.txt -r api/requirements.txt       # Mac/Linux
+```
+
+An out-of-date environment is reported with this command instead of a bare `ModuleNotFoundError` (1.6 added `filelock`).
+
 ### Configure
 
 Edit `config.yaml` with your search queries, date range, and screening keywords — or use the **Settings** page in the web app. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.

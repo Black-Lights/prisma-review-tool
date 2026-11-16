@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import platform
 import shutil
@@ -88,21 +89,47 @@ def ensure_python_venv() -> bool:
     return True
 
 
+REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "api" / "requirements.txt")
+
+
+def requirements_fingerprint() -> str:
+    """Hash of the requirement files: it changes when an update adds or raises a dependency."""
+    digest = hashlib.sha256()
+    for path in REQUIREMENT_FILES:
+        digest.update(path.name.encode())
+        try:
+            digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+        except OSError:
+            pass
+    return digest.hexdigest()
+
+
+def deps_up_to_date(marker: Path) -> bool:
+    """True if the venv was installed from the current requirement files."""
+    try:
+        return marker.read_text(encoding="utf-8").strip() == requirements_fingerprint()
+    except OSError:
+        return False
+
+
 def install_python_deps(force: bool = False) -> None:
-    """Install Python requirements into the venv."""
+    """Install Python requirements into the venv (again whenever they changed)."""
     marker = VENV_DIR / ".deps_installed"
-    if marker.exists() and not force:
+    if not force and deps_up_to_date(marker):
         log("Python dependencies already installed (use --install to force)", "ok")
         return
+    if marker.exists() and not force:
+        log("The requirements changed since the last install: updating Python dependencies", "info")
 
     log("Installing Python dependencies...", "info")
-    reqs = ROOT / "requirements.txt"
-    # Also need uvicorn + fastapi for the API server
-    ret = run([venv_pip(), "install", "-r", str(reqs), "uvicorn[standard]", "fastapi", "python-multipart", "-q"])
+    args = [venv_pip(), "install", "-q"]
+    for reqs in REQUIREMENT_FILES:
+        args += ["-r", str(reqs)]
+    ret = run(args)
     if ret != 0:
         log("Failed to install Python dependencies", "err")
         sys.exit(1)
-    marker.write_text("ok")
+    marker.write_text(requirements_fingerprint(), encoding="utf-8")
     log("Python dependencies installed", "ok")
 
 
@@ -114,19 +141,36 @@ def ensure_node() -> bool:
     return True
 
 
+def lockfile_fingerprint() -> str:
+    """Hash of web/package-lock.json: it changes when an update bumps a web dependency."""
+    try:
+        data = (WEB_DIR / "package-lock.json").read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
 def install_node_deps(force: bool = False) -> None:
-    """Install Node.js dependencies for the web frontend."""
+    """Install the web frontend's packages exactly as locked (again whenever the lockfile changed)."""
     node_modules = WEB_DIR / "node_modules"
-    if node_modules.exists() and not force:
+    marker = node_modules / ".prisma-lock-hash"
+    try:
+        current = marker.read_text(encoding="utf-8").strip() == lockfile_fingerprint()
+    except OSError:
+        current = False
+    if node_modules.exists() and current and not force:
         log("Node dependencies already installed (use --install to force)", "ok")
         return
+    if node_modules.exists() and not force:
+        log("The web lockfile changed since the last install: updating Node dependencies", "info")
 
     log("Installing Node.js dependencies...", "info")
     npm = "npm.cmd" if IS_WIN else "npm"
-    ret = run([npm, "install"], cwd=WEB_DIR)
+    ret = run([npm, "ci"], cwd=WEB_DIR)
     if ret != 0:
         log("Failed to install Node dependencies", "err")
         sys.exit(1)
+    marker.write_text(lockfile_fingerprint(), encoding="utf-8")
     log("Node dependencies installed", "ok")
 
 

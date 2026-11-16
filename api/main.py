@@ -15,15 +15,19 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from starlette.datastructures import Headers
-from starlette.responses import PlainTextResponse
-
 # Ensure prisma_review is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from prisma_review import __version__, workspace
+from prisma_review.deps import API_MODULES, exit_if_missing  # noqa: E402
+
+exit_if_missing(API_MODULES)  # an environment from an older version: say how to update it
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from starlette.datastructures import Headers  # noqa: E402
+from starlette.responses import PlainTextResponse  # noqa: E402
+
+from prisma_review import __version__, workspace  # noqa: E402
 from api.deps import init_config
 from api.routes import papers, pipeline, reports, config_routes, projects, events
 
