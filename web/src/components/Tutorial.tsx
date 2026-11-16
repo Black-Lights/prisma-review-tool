@@ -114,9 +114,18 @@ function TutorialOverlay() {
   const [visible, setVisible] = useState(false);
   const retryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const targetRef = useRef<HTMLElement | null>(null);
+
+  const measure = useCallback(() => {
+    const el = targetRef.current;
+    if (!el || !el.isConnected) return;
+    const r = el.getBoundingClientRect();
+    setElRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+  }, []);
 
   const updateRect = useCallback(() => {
     if (!step?.target) {
+      targetRef.current = null;
       setElRect(null);
       setVisible(true);
       retryCountRef.current = 0;
@@ -124,11 +133,13 @@ function TutorialOverlay() {
     }
     const el = document.querySelector(step.target) as HTMLElement | null;
     if (el) {
+      targetRef.current = el;
       retryCountRef.current = 0;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
+      // A long scroll (from the bottom of Settings to its header) outlasts
+      // this delay; the scroll listener below keeps measuring until it stops.
       setTimeout(() => {
-        const r = el.getBoundingClientRect();
-        setElRect({ top: r.top, left: r.left, width: r.width, height: r.height });
+        measure();
         setVisible(true);
       }, 400);
     } else {
@@ -140,7 +151,24 @@ function TutorialOverlay() {
         retryRef.current = setTimeout(() => updateRect(), 200);
       }
     }
-  }, [step]);
+  }, [step, measure]);
+
+  // Keep the highlight on the element while the page scrolls. The pages
+  // scroll inside <main>, and element scroll events do not bubble, so listen
+  // in the capture phase.
+  useEffect(() => {
+    if (!isActive) return;
+    let frame = 0;
+    const handle = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(measure);
+    };
+    document.addEventListener("scroll", handle, { capture: true, passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("scroll", handle, { capture: true });
+    };
+  }, [isActive, measure]);
 
   useEffect(() => {
     if (!isActive || !step) { setVisible(false); return; }
