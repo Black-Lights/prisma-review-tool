@@ -135,7 +135,10 @@ def test_openalex_refused_first_page_is_failed(fake_http):
     status = SearchStatus("openalex")
     assert search_openalex('"x"', D0, D1, api_key=FAKE_KEY, status=status) == []
     assert status.status == "failed"
-    assert "key_not_activated" in status.error and KEY_HINT in status.error
+    # R-17: a key is set, so the message says it was refused (not "add a key"),
+    # and the upstream free-text message is not forwarded.
+    assert "key_not_activated" in status.error and "api_keys.openalex_key" in status.error
+    assert KEY_HINT not in status.error and "Verify your email" not in status.error
 
 
 def test_openalex_keyless_paging_stops_at_10000_with_a_key_hint(fake_http):
@@ -292,7 +295,7 @@ def test_crossref_email_is_scrubbed_from_errors(fake_http):
     status = SearchStatus("crossref")
     search_crossref('"x"', D0, D1, email=FAKE_EMAIL, status=status)
     assert fake.calls[0]["params"]["mailto"] == FAKE_EMAIL
-    assert FAKE_EMAIL not in status.error and "***" in status.error
+    assert FAKE_EMAIL not in status.error and "/works?..." in status.error
     assert FAKE_EMAIL not in str(status.request)
 
 

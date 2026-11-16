@@ -92,13 +92,32 @@ class ConfigError(ValueError):
     """config.yaml is not valid YAML or not a mapping."""
 
 
+def yaml_error_summary(exc: yaml.YAMLError) -> str:
+    """What is wrong and where, without the snippet of the offending line.
+
+    PyYAML's own message quotes the line it failed on. In config.yaml that line
+    can hold an API key (e.g. ``api_keys`` indented with a tab), and the message
+    reaches web API responses and MCP tool results, so only the problem and its
+    position are kept.
+    """
+    if isinstance(exc, yaml.MarkedYAMLError):
+        parts = [p for p in (exc.context, exc.problem) if p]
+        text = "; ".join(parts) or type(exc).__name__
+        mark = exc.problem_mark or exc.context_mark
+        if mark is not None:
+            text += f" (line {mark.line + 1}, column {mark.column + 1})"
+        return text
+    return type(exc).__name__
+
+
 def load_raw_config(path: str | Path) -> dict:
     """Load a config file as a plain dict. Raises ConfigError unless it is a YAML mapping."""
     path = Path(path)
     try:
         data = yaml.safe_load(read_text(path))
     except yaml.YAMLError as exc:
-        raise ConfigError(f"{path} is not valid YAML: {exc}") from exc
+        # from None: the chained PyYAML exception would carry the snippet into tracebacks.
+        raise ConfigError(f"{path} is not valid YAML: {yaml_error_summary(exc)}") from None
     if not isinstance(data, dict):
         raise ConfigError(f"{path} must be a YAML mapping (key: value pairs), "
                           f"got {type(data).__name__}.")

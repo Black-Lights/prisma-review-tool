@@ -35,6 +35,29 @@ KEY_HINT = ("Add a free OpenAlex API key under api_keys.openalex_key "
             "(https://openalex.org/settings/api).")
 
 
+def _refusal_message(resp, where: str, have_key: bool, secrets: list[str]) -> str:
+    """Why OpenAlex refused a page, in the tool's own words for 401 and 403.
+
+    The body of a 401/403 is not forwarded: it is addressed to whoever reads
+    it (it has told AI agents to post the user's email to an OpenAlex
+    endpoint), and these messages reach MCP agents as pipeline warnings. Only
+    its short ``error`` code is kept.
+    """
+    code = resp.status_code
+    if code in (401, 403):
+        reason = http.redact(http.api_error_code(resp), secrets)
+        msg = f"OpenAlex HTTP {code} on {where}" + (f" ({reason})" if reason else "")
+        if have_key:
+            return (msg + ": OpenAlex refused the configured API key. Check api_keys.openalex_key "
+                          "(https://openalex.org/settings/api).")
+        return msg + f": OpenAlex needs an API key for this request. {KEY_HINT}"
+    detail = http.redact(http.api_message(resp), secrets)
+    msg = f"OpenAlex HTTP {code} on {where}" + (f": {detail}" if detail else "")
+    if "api key" in detail.lower() and not have_key:
+        msg += f". {KEY_HINT}"
+    return msg
+
+
 def build_params(query: str, date_start: str, date_end: str,
                  filters: SearchFilters | None = None) -> dict:
     """Request parameters (without paging) for one query."""
@@ -156,11 +179,8 @@ def search_openalex(query: str, date_start: str, date_end: str,
             resp = http.get(API_URL, params=page_params, headers=headers, timeout=30,
                             should_cancel=should_cancel, secrets=secrets, label="OpenAlex")
             if resp.status_code != 200:
-                detail = http.redact(http.api_message(resp), secrets)
                 where = f"page {page}" if page > 1 else "the first page"
-                msg = f"OpenAlex HTTP {resp.status_code} on {where}: {detail}"
-                if resp.status_code in (401, 403) or "api key" in detail.lower():
-                    msg += f". {KEY_HINT}"
+                msg = _refusal_message(resp, where, bool(api_key), secrets)
                 status.stop(msg, bool(papers))
                 print(f"  [!] {msg}")
                 break

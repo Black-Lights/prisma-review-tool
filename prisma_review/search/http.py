@@ -10,9 +10,11 @@ about half a second.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Optional
+from urllib.parse import quote, quote_plus
 
 import requests
 
@@ -89,12 +91,36 @@ class SearchStatus:
         self.error = "cancelled by the user"
 
 
+# "url: /works?query=x&mailto=a%40b.org" in a requests exception message.
+_URL_QUERY_RE = re.compile(r"(url: [^\s?]*)\?[^\s)]*")
+
+
 def redact(text: str, secrets: Iterable[str]) -> str:
-    """Replace every non-empty secret in ``text`` with ``***``."""
+    """Replace every non-empty secret in ``text`` with ``***``.
+
+    Also its URL-encoded forms: requests quotes the query string it sent
+    (``mailto=someone%40example.org``) in its exception messages.
+    """
     for secret in secrets:
-        if secret:
-            text = text.replace(secret, "***")
+        if not secret:
+            continue
+        for form in {secret, quote(secret, safe=""), quote(secret), quote_plus(secret)}:
+            text = text.replace(form, "***")
     return text
+
+
+def strip_query(text: str) -> str:
+    """Drop the query string of any ``url: ...`` in an exception message.
+
+    The request itself is recorded in the search log (without credentials), so
+    the parameters add nothing to an error and may carry a contact email.
+    """
+    return _URL_QUERY_RE.sub(r"\1?...", text)
+
+
+def error_text(exc: BaseException, secrets: Iterable[str] = ()) -> str:
+    """``"<Type>: <message>"`` for an exception, query strings and secrets removed."""
+    return redact(strip_query(f"{type(exc).__name__}: {exc}"), secrets)
 
 
 def check_cancel(should_cancel: Optional[Callable[[], bool]]) -> None:
@@ -122,6 +148,16 @@ def _retry_after(resp: requests.Response) -> Optional[float]:
         return None  # an HTTP date: fall back to our own backoff
 
 
+def api_error_code(resp: requests.Response, limit: int = 120) -> str:
+    """Only the short ``error`` field of a JSON error body (no free-text ``message``)."""
+    try:
+        data = resp.json()
+    except ValueError:
+        return ""
+    value = data.get("error") if isinstance(data, dict) else None
+    return " ".join(str(value).split())[:limit] if isinstance(value, str) else ""
+
+
 def api_message(resp: requests.Response, limit: int = 300) -> str:
     """A short human-readable error from an API response body."""
     try:
@@ -135,7 +171,7 @@ def api_message(resp: requests.Response, limit: int = 300) -> str:
             if isinstance(value, dict):
                 value = value.get("status", {}).get("statusText") if "status" in value else str(value)
             if value and str(value) not in parts:
-                parts.append(str(value))
+                parts.append(str(value).strip().rstrip("."))
     text = ": ".join(parts) if parts else (getattr(resp, "text", "") or "").strip()
     return " ".join(text.split())[:limit]
 
@@ -161,7 +197,7 @@ def get(url: str, *, params: Optional[dict] = None, headers: Optional[dict] = No
         try:
             resp = _send(url, params=params, headers=hdrs, timeout=timeout)
         except requests.RequestException as exc:
-            last_error = redact(f"{type(exc).__name__}: {exc}", secrets)
+            last_error = error_text(exc, secrets)
             last_code = None
         else:
             if resp.status_code not in RETRY_STATUSES:

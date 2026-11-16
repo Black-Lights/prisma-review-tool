@@ -20,7 +20,7 @@ from ..storage import atomic_write_json
 from .arxiv_search import search_arxiv
 from .crossref_search import search_crossref
 from .filters import SearchFilters, apply_post_filters, filter_modes, source_filter_warnings
-from .http import SearchCancelled, SearchStatus
+from .http import SearchCancelled, SearchStatus, error_text
 from .openalex_search import search_openalex
 from .query_plan import date_range, plan_query
 from .scopus_search import search_scopus
@@ -124,7 +124,8 @@ def run_all_searches(config: Config, *, status_log: Optional[list] = None,
                 except SearchCancelled:
                     status.cancel()
                 except Exception as exc:  # a backend bug must not end the whole search
-                    status.stop(f"{source}: {type(exc).__name__}: {exc}", False)
+                    secrets = [config.openalex_email, config.openalex_key, config.scopus_key]
+                    status.stop(f"{source}: {error_text(exc, secrets)}", False)
                     papers = []
                 if status.status == "cancelled":
                     cancelled = True

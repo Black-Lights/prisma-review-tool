@@ -7,7 +7,7 @@ from typing import Callable, Optional
 import arxiv
 from ..models import Paper
 from .filters import SearchFilters
-from .http import SearchStatus
+from .http import SearchStatus, strip_query
 from .query_plan import arxiv_query
 
 # Progress output must go to stderr: this module is imported by the stdio MCP
@@ -84,7 +84,7 @@ def search_arxiv(query: str, date_start: str, date_end: str, max_results: int = 
                 is_oa=True,
             ))
     except Exception as e:  # arxiv.HTTPError, UnexpectedEmptyPageError, network errors
-        status.stop(f"arXiv: {e}", bool(papers))
+        status.stop(f"arXiv: {strip_query(str(e))}", bool(papers))
         print(f"\n    [!] arXiv API error: {e}")
 
     status.api_total = client.total_results
