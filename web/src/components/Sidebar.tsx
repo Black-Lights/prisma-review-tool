@@ -32,7 +32,7 @@ const navItems = [
   { label: "MCP Settings", href: "/mcp-settings", icon: Plug },
 ];
 
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.6.1";
 
 export function Sidebar() {
   const pathname = usePathname();
