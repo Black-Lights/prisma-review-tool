@@ -319,3 +319,31 @@ def test_allowed_hosts_can_be_extended(api_client, monkeypatch):
     assert api_client.get("/api/health", headers={"Host": "lab-box:8000"}).status_code == 200
     assert api_client.get("/api/health", headers={"Host": "192.168.1.10"}).status_code == 200
     assert api_client.get("/api/health", headers={"Host": "other"}).status_code == 400
+
+
+# --------------------------------------------------------------------------- R-9
+
+
+@pytest.mark.parametrize("fmt", ["csv", "bib"])
+def test_paper_export_leaves_no_temp_file_behind(api_client, workspace, tmp_path, monkeypatch, fmt):
+    import tempfile
+
+    from conftest import write_dataset
+
+    write_dataset(workspace.output_dir("alpha"))
+    temp_dir = tmp_path / "temp"
+    temp_dir.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(temp_dir))
+
+    for _ in range(3):
+        resp = api_client.get(f"/api/papers/export/{fmt}", params={"decision": "include"},
+                              headers={"Origin": "http://evil.example"})
+        assert resp.status_code == 200
+        assert 'filename="papers_include.' + fmt + '"' in resp.headers["content-disposition"]
+    assert list(temp_dir.iterdir()) == []
+    if fmt == "csv":
+        assert resp.text.splitlines()[0].startswith("bibtex_key,title")
+        assert "Crop yield prediction with deep learning" in resp.text
+        assert "Medical imaging" not in resp.text
+    else:
+        assert resp.text.count("@article{") == 2

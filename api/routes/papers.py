@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 
 from prisma_review.models import Paper
 from prisma_review.pipeline import RunActiveError, StepError
@@ -14,7 +13,7 @@ from prisma_review.screen import apply_eligibility_decisions, apply_screen_decis
 from prisma_review.stats import load_papers_cached, project_stats
 from prisma_review.config import Config, config_version
 from prisma_review.diagram import load_state
-from prisma_review.export import export_csv, export_bibtex, ALL_CSV_FIELDS
+from prisma_review.export import ALL_CSV_FIELDS, bibtex_text, csv_text
 
 from api.deps import get_config
 from api.schemas import ScreenDecision, BatchScreenItem
@@ -137,7 +136,7 @@ def export_papers(
     fields: str = Query(""),
     config: Config = Depends(get_config),
 ):
-    """Export filtered papers as CSV or BibTeX on demand."""
+    """Export filtered papers as CSV or BibTeX on demand (built in memory, no temp file)."""
     if fmt not in ("csv", "bib"):
         return {"error": "Format must be 'csv' or 'bib'"}
 
@@ -151,22 +150,21 @@ def export_papers(
         parts.append(decision)
     if source != "all":
         parts.append(source)
-    filename = "_".join(parts) + f".{fmt}"
+    filename = re.sub(r"[^\w.-]", "_", "_".join(parts)) + f".{fmt}"
 
-    # Write to temp file
-    tmp = Path(tempfile.mktemp(suffix=f".{fmt}"))
     if fmt == "csv":
         field_list = [f.strip() for f in fields.split(",") if f.strip()] if fields else None
         # Validate fields
         if field_list:
             field_list = [f for f in field_list if f in ALL_CSV_FIELDS]
-        export_csv(papers, tmp, fields=field_list or None)
-        media = "text/csv"
+        text = csv_text(papers, fields=field_list or None)
+        media = "text/csv; charset=utf-8"
     else:
-        export_bibtex(papers, tmp)
-        media = "application/x-bibtex"
+        text = bibtex_text(papers)
+        media = "application/x-bibtex; charset=utf-8"
 
-    return FileResponse(tmp, media_type=media, filename=filename)
+    return Response(content=text.encode("utf-8"), media_type=media,
+                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 # ── Re-screen (keyword screening with different threshold) ───────────────────

@@ -8,6 +8,7 @@ from pathlib import Path
 import pandas as pd
 
 from .models import Paper
+from .storage import atomic_write_text
 
 
 def _make_unique_keys(papers: list[Paper]) -> list[str]:
@@ -37,10 +38,8 @@ def _escape_bibtex(value: str) -> str:
     return value.replace("{", "\\{").replace("}", "\\}")
 
 
-def export_bibtex(papers: list[Paper], path: Path) -> None:
-    """Export papers to a .bib file."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-
+def bibtex_text(papers: list[Paper]) -> str:
+    """The papers as BibTeX entries."""
     keys = _make_unique_keys(papers)
     lines = []
 
@@ -62,8 +61,12 @@ def export_bibtex(papers: list[Paper], path: Path) -> None:
         lines.append("}")
         lines.append("")
 
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+    return "\n".join(lines)
+
+
+def export_bibtex(papers: list[Paper], path: Path) -> None:
+    """Export papers to a .bib file."""
+    atomic_write_text(path, bibtex_text(papers))
 
 
 ALL_CSV_FIELDS = [
@@ -79,20 +82,8 @@ DEFAULT_CSV_FIELDS = [
 ]
 
 
-def export_csv(
-    papers: list[Paper],
-    path: Path,
-    fields: list[str] | None = None,
-) -> None:
-    """Export papers to a CSV file.
-
-    Args:
-        papers: Papers to export.
-        path: Output file path.
-        fields: Column names to include. None = default set.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-
+def csv_text(papers: list[Paper], fields: list[str] | None = None) -> str:
+    """The papers as CSV text with the given columns (None = the default set)."""
     use_fields = fields if fields else DEFAULT_CSV_FIELDS
     # Always generate bibtex_key if requested
     keys = _make_unique_keys(papers) if "bibtex_key" in use_fields else [None] * len(papers)
@@ -111,5 +102,19 @@ def export_csv(
                 row[f] = getattr(paper, f) or ""
         rows.append(row)
 
-    df = pd.DataFrame(rows, columns=use_fields)
-    df.to_csv(path, index=False, encoding="utf-8")
+    return pd.DataFrame(rows, columns=use_fields).to_csv(index=False)
+
+
+def export_csv(
+    papers: list[Paper],
+    path: Path,
+    fields: list[str] | None = None,
+) -> None:
+    """Export papers to a CSV file.
+
+    Args:
+        papers: Papers to export.
+        path: Output file path.
+        fields: Column names to include. None = default set.
+    """
+    atomic_write_text(path, csv_text(papers, fields))
