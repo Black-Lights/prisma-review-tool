@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-11-17
+
+### Fixed
+
+- The guided tour showed only a dark screen when the page had to scroll far to reach a step, for example "Step 1: Settings" with Settings scrolled to the bottom. The highlight measured the element once, before the scroll had finished; it now follows the element while the page scrolls.
+- `python start.py` shut the whole app down when Next.js quit on its first start. Next.js 16.4.4 does this once after a security advisory names the installed version: it prints a notice, exits, and asks to be run again. The launcher now starts the web app again once when it exits with an error, and opens the browser only when the web app is running.
+
+### Security
+
+- Next.js and `eslint-config-next` go from 16.4.4 to 16.4.5, which fixes the moderate advisory GHSA-mfr8-8qww-v76h. `npm audit --omit=dev` reports no vulnerabilities. Seven moderate findings remain in the lint tooling (one `minimatch` advisory reached through typescript-eslint); they run only on a developer's machine and are not part of the app.
+
 ## [1.6.0] - 2026-11-16
 
 This release merges the community fork by **walterdemacedorodrigues** and **agoshigagoroba** (including PR #3) and fixes what an in-depth review of the fork and of 1.5.1 found.

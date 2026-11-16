@@ -216,6 +216,26 @@ def frontend_command(port: int, host: str = DEFAULT_HOST) -> list[str]:
     return [npm, "run", "dev", "--", "--hostname", host, "--port", str(port)]
 
 
+# Next.js can quit once on a fresh start to show a notice (it does this when a
+# security advisory names the installed version) and then asks to be run again.
+FRONTEND_RESTARTS = 1
+
+
+def restart_if_stopped(proc, start, processes: list, restarts_left: int):
+    """Start the web app again if it quit with an error and a restart is left.
+
+    Returns the web app process to watch from now on and the restarts left.
+    """
+    ret = proc.poll()
+    if ret is None or ret == 0 or restarts_left <= 0:
+        return proc, restarts_left
+    processes.remove(proc)
+    log(f"The web app stopped with code {ret}, starting it again...", "warn")
+    new_proc = start()
+    processes.append(new_proc)
+    return new_proc, restarts_left - 1
+
+
 def start_app(backend_port: int, frontend_port: int, open_browser: bool,
               host: str = DEFAULT_HOST) -> None:
     """Start FastAPI backend + Next.js frontend, handle cleanup on exit."""
@@ -267,8 +287,13 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool,
         "NEXT_PUBLIC_API_URL": f"http://localhost:{backend_port}",
     }
     frontend_cmd = frontend_command(frontend_port, host)
-    frontend_proc = subprocess.Popen(frontend_cmd, cwd=WEB_DIR, env=frontend_env, **kwargs)
+
+    def start_frontend() -> subprocess.Popen:
+        return subprocess.Popen(frontend_cmd, cwd=WEB_DIR, env=frontend_env, **kwargs)
+
+    frontend_proc = start_frontend()
     processes.append(frontend_proc)
+    restarts_left = FRONTEND_RESTARTS
 
     url = f"http://localhost:{frontend_port}"
 
@@ -277,13 +302,18 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool,
         log("Waiting for web app to be ready...", "info")
         import urllib.request
         for _ in range(60):  # up to 60 seconds
+            frontend_proc, restarts_left = restart_if_stopped(
+                frontend_proc, start_frontend, processes, restarts_left)
+            if frontend_proc.poll() is not None:
+                break
             try:
                 urllib.request.urlopen(url, timeout=1)
                 break
             except Exception:
                 time.sleep(1)
-        log(f"Opening {url} in your browser...", "ok")
-        webbrowser.open(url)
+        if frontend_proc.poll() is None:
+            log(f"Opening {url} in your browser...", "ok")
+            webbrowser.open(url)
 
     print()
     print(f"\033[92m  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m")
@@ -300,6 +330,8 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool,
     # Wait for either process to exit
     try:
         while True:
+            frontend_proc, restarts_left = restart_if_stopped(
+                frontend_proc, start_frontend, processes, restarts_left)
             for proc in processes:
                 ret = proc.poll()
                 if ret is not None:
