@@ -9,17 +9,26 @@ import {
   fetchPipelineProgress,
   fetchReportByQuery,
   fetchFilterPlan,
+  fetchSearchLog,
   type FilterMode,
 } from "@/lib/api";
 import { configEditedSince } from "@/lib/configForm";
 import { flowFunnelRows, getFlow, type FunnelRow } from "@/lib/flow";
-import { FILTER_MODE_LABEL, buildReportMarkdown, formatCount } from "@/lib/report";
+import {
+  FILTER_MODE_LABEL,
+  buildReportMarkdown,
+  formatCount,
+  planFromLog,
+  searchSettings,
+  utcMinute,
+} from "@/lib/report";
 
 /**
  * Read-only pipeline report: what came in, what was filtered, and how.
  * Counts come only from the PRISMA flow computed by the API (stats.flow), so
- * they match the diagram and the exported reports. Filters and the filter plan
- * describe the current settings, which can differ from the last run.
+ * they match the diagram and the exported reports. The queries, filters and
+ * filter plan come from the search log of the last completed search (the
+ * search as it ran); without one they describe the current settings.
  */
 export default function ReportPanel() {
   const { data: stats } = useQuery({ queryKey: ["stats"], queryFn: fetchStats, staleTime: 30_000 });
@@ -39,14 +48,18 @@ export default function ReportPanel() {
     queryFn: fetchFilterPlan,
     staleTime: 30_000,
   });
+  const { data: searchLog } = useQuery({
+    queryKey: ["search-log"],
+    queryFn: fetchSearchLog,
+    staleTime: 30_000,
+  });
 
   const flow = getFlow(stats);
   const hasSearch = !!stats && !stats.error && Object.keys(stats.search ?? {}).length > 0;
   const hasData = flow !== null || hasSearch;
   const funnel = flow ? flowFunnelRows(flow) : [];
 
-  const filters = config?.search?.filters ?? {};
-  const dateRange = config?.search?.date_range ?? {};
+  const search = searchSettings(searchLog, config);
   const warnings: string[] = progress?.warnings ?? [];
 
   const queryRows = byQuery?.queries ?? [];
@@ -54,16 +67,27 @@ export default function ReportPanel() {
   const hasQueryData = queryRows.length > 0;
   const totalIncluded = byQuery?.total_included ?? flow?.sought_for_retrieval ?? 0;
 
-  const planSources = filterPlan?.sources ?? [];
-  const planRows = filterPlan?.filters ?? [];
-  const hasPlanData = !filterPlan?.empty && planRows.length > 0;
+  // Where each filter was applied: as logged by the last search, else as the
+  // current settings would apply it.
+  const plan = searchLog
+    ? planFromLog(searchLog)
+    : { sources: filterPlan?.sources ?? [], rows: filterPlan?.empty ? [] : (filterPlan?.filters ?? []) };
+  const planSources = plan.sources;
+  const planRows = plan.rows;
+  const hasPlanData = planRows.length > 0;
 
-  // The settings below are the current ones; flag when they were saved after
-  // the last pipeline run started, so nobody documents filters never applied.
-  const settingsNote = configEditedSince(config?._version, progress?.started_at)
-    ? `Settings were saved after the last pipeline run started (${utcMinute(progress?.started_at)}). ` +
-      "The filters below are the current settings and may not be the ones that produced these counts. Re-run the pipeline to align them."
-    : null;
+  // Flag settings saved after the search the counts come from, so nobody
+  // documents filters that were never applied.
+  const settingsNote =
+    search.from === "search_log"
+      ? configEditedSince(config?._version, searchLog?.finished_at)
+        ? `The settings were saved after this search ran (${utcMinute(searchLog?.finished_at)}). ` +
+          "The table shows the search as it ran; re-run the pipeline to search with the current settings."
+        : null
+      : configEditedSince(config?._version, progress?.started_at)
+        ? `Settings were saved after the last pipeline run started (${utcMinute(progress?.started_at)}). ` +
+          "The filters below are the current settings and may not be the ones that produced these counts. Re-run the pipeline to align them."
+        : null;
 
   // request = filtered at the source; post = filtered locally after the call;
   // unsupported = the source can't express it, so it's ignored there.
@@ -73,19 +97,7 @@ export default function ReportPanel() {
     unsupported: "text-text-muted",
   };
 
-  const valueOf = (v: unknown): string => {
-    if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
-    if (typeof v === "boolean") return v ? "on" : "off";
-    return v ? String(v) : "none";
-  };
-
-  const filterRows: [string, string][] = [
-    ["Date range", `${dateRange.start || "?"} to ${dateRange.end || "?"}`],
-    ["Document types", valueOf(filters.document_types)],
-    ["Require abstract", valueOf(filters.require_abstract ?? false)],
-    ["Open access", valueOf(filters.open_access ?? false)],
-    ["Venues / ISSN", valueOf(filters.venues)],
-  ];
+  const filterRows = search.rows;
 
   const handleExport = () => {
     const md = buildReportMarkdown({
@@ -95,6 +107,7 @@ export default function ReportPanel() {
       totalIncluded,
       untaggedScreened,
       filterRows,
+      filterHeading: search.heading,
       plan: hasPlanData ? { sources: planSources, rows: planRows } : null,
       warnings,
       settingsNote,
@@ -228,7 +241,9 @@ export default function ReportPanel() {
           {/* 2) Source filters */}
           <section>
             <h3 className="text-xs uppercase tracking-wide text-text-muted mb-2">
-              Source filters (current settings): how the request is narrowed
+              {search.from === "search_log"
+                ? "Search as run (search log): sources, dates and filters"
+                : "Source filters (current settings): how the request is narrowed"}
             </h3>
             {settingsNote && (
               <p className="text-xs text-accent-amber mb-2 flex items-start gap-1.5">
@@ -320,12 +335,6 @@ export default function ReportPanel() {
       )}
     </GlassCard>
   );
-}
-
-/** "2026-06-21 13:04 UTC", the same in every browser locale. */
-function utcMinute(iso: string | null | undefined): string {
-  const t = Date.parse(iso ?? "");
-  return Number.isNaN(t) ? "unknown time" : `${new Date(t).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
 function Row({ row }: { row: FunnelRow }) {

@@ -51,20 +51,48 @@ def generate_report(config: Config = Depends(get_config)):
     }
 
 
+def _search_log(config: Config) -> dict | None:
+    """01_search/search_log.json of the active project: the search the results come from."""
+    log = read_json(config.search_dir / "search_log.json", default=None)
+    return log if isinstance(log, dict) else None
+
+
+@router.get("/reports/search-log")
+def search_log(config: Config = Depends(get_config)):
+    """The search exactly as it ran (PRISMA 2020 item 7): 01_search/search_log.json.
+
+    404 when no search has completed yet (the log is written at the end of a search).
+    """
+    log = _search_log(config)
+    if log is None:
+        raise HTTPException(status_code=404,
+                            detail="No search log yet: it is written when a search completes.")
+    return log
+
+
+def _query_list(items) -> list[dict]:
+    return [{"name": q.get("name") or "unnamed", "terms": str(q.get("terms", "") or "").strip()}
+            for q in items or [] if isinstance(q, dict)]
+
+
 @router.get("/reports/by-query")
 def report_by_query(config: Config = Depends(get_config)):
-    """Attribute results to each configured query.
+    """Attribute results to each query of the search that produced them.
 
-    Counts are *with overlap*: queries are OR'd, so a paper returned by more
-    than one query is counted under each, and the per-query sums therefore exceed
-    the distinct totals. ``found_raw`` is pre-dedup; the rest are on the
-    deduplicated/screened set. ``untagged`` are papers with no recorded query
-    (e.g. searched before per-query provenance was tracked). ``notes`` explains
-    rows that are merged or missing."""
-    queries = [
-        {"name": q.get("name") or "unnamed", "terms": (q.get("terms", "") or "").strip()}
-        for q in getattr(config, "queries", []) or []
-    ]
+    The queries (names and terms) come from 01_search/search_log.json when it
+    exists (``queries_from``: "search_log"), so the report describes the search
+    that was run even after the settings changed; otherwise from the current
+    settings ("settings"). Counts are *with overlap*: queries are OR'd, so a
+    paper returned by more than one query is counted under each, and the
+    per-query sums therefore exceed the distinct totals. ``found_raw`` is
+    pre-dedup; the rest are on the deduplicated/screened set. ``untagged`` are
+    papers with no recorded query (e.g. searched before per-query provenance
+    was tracked). ``notes`` explains rows that are merged or missing."""
+    configured = _query_list(getattr(config, "queries", []) or [])
+    log = _search_log(config)
+    logged = _query_list(log.get("queries")) if log is not None else []
+    queries = logged if logged else configured
+    queries_from = "search_log" if logged else "settings"
 
     raw = load_papers_cached(config.search_dir / "all_records.json")
     screened = load_papers_cached(config.screen_dir / "screen_results.json")
@@ -104,7 +132,12 @@ def report_by_query(config: Config = Depends(get_config)):
     for name in sorted({n for n in names if names.count(n) > 1}):
         notes.append(f"The name '{name}' is used by more than one query, so their results are "
                      f"merged into one row. Give each query a unique name.")
-    unnamed = sum(1 for q in getattr(config, "queries", []) or [] if not q.get("name"))
+    current = [(q["name"], q["terms"]) for q in configured if q["terms"]]
+    if logged and current != [(q["name"], q["terms"]) for q in logged]:
+        notes.append("The queries in the settings changed after this search ran. The rows show "
+                     "the queries of the search that produced these results (search log); run "
+                     "the search again to report the new ones.")
+    unnamed = sum(1 for q in queries if q["name"] == "unnamed")
     if unnamed:
         notes.append(f"{unnamed} quer{'y' if unnamed == 1 else 'ies'} without a name "
                      f"{'is' if unnamed == 1 else 'are'} reported as 'unnamed'.")
@@ -117,6 +150,7 @@ def report_by_query(config: Config = Depends(get_config)):
 
     terms_by_name = {q["name"]: q["terms"] for q in queries}
     return {
+        "queries_from": queries_from,
         "queries": [{"name": name, "terms": terms_by_name.get(name, ""), **counts}
                     for name, counts in rows.items()],
         "total_after_dedup": len(screened),

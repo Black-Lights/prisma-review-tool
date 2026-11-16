@@ -34,6 +34,7 @@ export const AREA_QUERY_KEYS: Record<string, readonly string[]> = {
     "papers-to-screen",
     "eligibility-papers",
     "report-by-query",
+    "search-log",
   ],
   pipeline: ["pipeline-progress", "stats"],
   screen: [

@@ -154,6 +154,16 @@ export const stopPipeline = () =>
 // Reports
 export const fetchReportByQuery = () => request<ReportByQueryResponse>("/api/reports/by-query");
 export const fetchFilterPlan = () => request<FilterPlanResponse>("/api/reports/filter-plan");
+
+/** The search as it ran (01_search/search_log.json), or null before any search completed. */
+export const fetchSearchLog = async (): Promise<SearchLog | null> => {
+  try {
+    return await request<SearchLog>("/api/reports/search-log");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+};
 export const generateReport = () => request<Record<string, unknown>>("/api/reports/generate", { method: "POST" });
 export const downloadPapers = () => request<Record<string, unknown>>("/api/papers/download", { method: "POST" });
 export const fetchDownloadLog = () => request<DownloadLogResponse>("/api/papers/downloads");
@@ -300,6 +310,8 @@ export interface QueryReportRow {
 }
 
 export interface ReportByQueryResponse {
+  /** Where the query names and terms come from: the search log of the last search, or the settings. */
+  queries_from?: "search_log" | "settings";
   queries: QueryReportRow[];
   total_after_dedup: number;
   total_included: number;
@@ -308,6 +320,21 @@ export interface ReportByQueryResponse {
 }
 
 export type FilterMode = "request" | "post" | "unsupported";
+
+/** 01_search/search_log.json: the search exactly as executed (PRISMA 2020 item 7). */
+export interface SearchLog {
+  tool_version?: string;
+  started_at?: string;
+  finished_at?: string;
+  date_range?: { start?: string; end?: string };
+  max_results_per_query?: number;
+  sources?: string[];
+  filters?: { document_types?: string[]; require_abstract?: boolean; open_access?: boolean; venues?: string[] };
+  queries?: { index: number; name: string; terms: string; terms_sha256?: string }[];
+  complete?: boolean;
+  truncated?: boolean;
+  searches?: Record<string, unknown>[];
+}
 
 export interface FilterPlanResponse {
   sources: string[];

@@ -174,3 +174,49 @@ def test_the_mcp_settings_page_has_no_sse_endpoint():
             / "page.tsx").read_text(encoding="utf-8")
     assert "/mcp/sse" not in page and '"sse"' not in page
     assert "fetchMcpSetup" in page
+
+
+# --------------------------------------------------------------------------- OP-6
+
+
+def _write_search_log(out, queries):
+    log = {"tool_version": "1.6.0", "started_at": "2026-11-01T10:00:00+00:00",
+           "finished_at": "2026-11-01T10:05:00+00:00",
+           "date_range": {"start": "2021-01-01", "end": "2025-12-31"},
+           "max_results_per_query": 500, "sources": ["openalex"],
+           "filters": {"document_types": ["journal-article"], "require_abstract": True,
+                       "open_access": False, "venues": []},
+           "queries": queries, "complete": True, "truncated": False, "searches": []}
+    (out / "01_search" / "search_log.json").write_text(json.dumps(log), encoding="utf-8")
+    return log
+
+
+def test_search_log_endpoint_serves_the_log_or_a_clean_404(api_client, workspace):
+    out = workspace.output_dir("alpha")
+    write_dataset(out)
+    resp = api_client.get("/api/reports/search-log")
+    assert resp.status_code == 404 and "No search log yet" in resp.json()["detail"]
+    log = _write_search_log(out, [{"index": 0, "name": "main", "terms": '"crop yield"'}])
+    assert api_client.get("/api/reports/search-log").json() == log
+
+
+def test_by_query_reports_the_queries_of_the_search_that_ran(api_client, workspace):
+    out = workspace.output_dir("alpha")
+    write_dataset(out)
+    # No log: the current settings name the rows.
+    body = api_client.get("/api/reports/by-query").json()
+    assert body["queries_from"] == "settings"
+    assert [q["terms"] for q in body["queries"]] == ['"crop yield" AND prediction']
+
+    # The search ran with other terms than the settings hold now.
+    _write_search_log(out, [{"index": 0, "name": "main", "terms": '"crop yield" OR harvest'}])
+    body = api_client.get("/api/reports/by-query").json()
+    assert body["queries_from"] == "search_log"
+    assert body["queries"][0]["name"] == "main"
+    assert body["queries"][0]["terms"] == '"crop yield" OR harvest'
+    assert body["queries"][0]["found_raw"] == 7
+    assert any("changed after this search ran" in n for n in body["notes"])
+
+    _write_search_log(out, [{"index": 0, "name": "main", "terms": '"crop yield" AND prediction'}])
+    body = api_client.get("/api/reports/by-query").json()
+    assert not any("changed after" in n for n in body["notes"])

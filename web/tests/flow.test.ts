@@ -148,3 +148,46 @@ test("R-13: records not yet screened are their own row, before and apart from th
   assert.equal(row(rows, "screened").detail, "150 included by keyword rules, no reviewer");
   assert.equal(row(flowFunnelRows(FLOW), "screened").detail, undefined);
 });
+
+test("OP-6: the report describes the logged search when there is one, else the settings", async () => {
+  const { searchSettings, planFromLog } = await import("../src/lib/report.ts");
+  const config = { search: { date_range: { start: "2020-01-01", end: "2026-12-31" }, filters: { venues: ["Nature"] } } };
+  const fromSettings = searchSettings(null, config);
+  assert.equal(fromSettings.from, "settings");
+  assert.deepEqual(fromSettings.rows[0], ["Date range", "2020-01-01 to 2026-12-31"]);
+
+  const log = {
+    finished_at: "2026-11-01T10:05:00+00:00",
+    tool_version: "1.6.0",
+    sources: ["openalex", "semantic_scholar"],
+    date_range: { start: "2021-01-01", end: "2025-12-31" },
+    max_results_per_query: 500,
+    filters: { document_types: ["journal-article"], require_abstract: true, open_access: false, venues: [] },
+    truncated: true,
+    searches: [
+      { source: "openalex", filter_modes: { document_types: "request", require_abstract: "request" } },
+      { source: "semantic_scholar", filter_modes: { document_types: "request", require_abstract: "post" } },
+    ],
+  };
+  const fromLog = searchSettings(log, config);
+  assert.equal(fromLog.from, "search_log");
+  const rows = Object.fromEntries(fromLog.rows);
+  assert.equal(rows["Searched"], "2026-11-01 10:05 UTC (tool 1.6.0)");
+  assert.equal(rows["Date range"], "2021-01-01 to 2025-12-31");
+  assert.equal(rows["Venues / ISSN"], "none");
+  assert.equal(rows["Require abstract"], "on");
+  assert.ok(rows["Truncated"].startsWith("yes"));
+  assert.deepEqual(planFromLog(log), {
+    sources: ["openalex", "semantic_scholar"],
+    rows: [
+      { filter: "document_types", by_source: { openalex: "request", semantic_scholar: "request" } },
+      { filter: "require_abstract", by_source: { openalex: "request", semantic_scholar: "post" } },
+    ],
+  });
+  const md = buildReportMarkdown({
+    projectName: "Alpha", flow: FLOW, queryRows: [], totalIncluded: 0, untaggedScreened: 0,
+    filterRows: fromLog.rows, filterHeading: fromLog.heading, plan: null, warnings: [],
+  });
+  assert.match(md, /## Search as run \(search log\)/);
+  assert.doesNotMatch(md, /current settings/);
+});
