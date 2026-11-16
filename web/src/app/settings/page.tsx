@@ -599,8 +599,8 @@ function SettingsForm({
           onRemove={(i) => removeKeyword("required_keywords", i)}
           info={
             <InfoTip label="About required keywords" variant="inline" width="w-80">
-              <p className="text-text-primary font-medium">Optional gate. If any are set, a paper is auto-excluded unless it contains at least one of these terms in its title/abstract.</p>
-              <p className="text-text-muted">Leave empty to disable (default). Matching is substring + case-insensitive, so list distinct forms of a concept separately.</p>
+              <p className="text-text-primary font-medium">Optional gate. If any are set, a paper is auto-excluded unless it contains at least one of these terms in its title/abstract (a paper without an abstract is left as &quot;maybe&quot; instead).</p>
+              <p className="text-text-muted">Leave empty to disable (default). Each term must appear as a whole word or phrase: case, hyphens and a plural s/es are ignored, so &quot;large language model&quot; matches &quot;Large-Language Models&quot; but &quot;RAG&quot; does not match &quot;storage&quot; and a stem such as &quot;optim&quot; matches nothing. List other word forms separately (optimise, optimize).</p>
             </InfoTip>
           }
         />

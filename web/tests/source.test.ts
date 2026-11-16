@@ -89,3 +89,12 @@ test("PIPE#14 / WEB#7: the provider uses the scoped realtime client", () => {
   assert.match(src, /startRealtimeSync\(/);
   assert.doesNotMatch(src, /new EventSource\(/);
 });
+
+test("R-20: the required-keywords tooltip states the whole-word rule the backend applies", () => {
+  const src = read("app/settings/page.tsx");
+  const tip = src.slice(src.indexOf('label="About required keywords"'));
+  const body = tip.slice(0, tip.indexOf("</InfoTip>"));
+  assert.doesNotMatch(body, /substring/i);
+  assert.match(body, /whole word or phrase/);
+  assert.match(body, /plural/);
+});
