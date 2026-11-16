@@ -66,7 +66,10 @@ screening in the background (replacing that project's earlier search results); \
 poll get_pipeline_progress. Then screen the "maybe" papers with \
 get_papers_to_screen and batch_screen_papers, run the eligibility pass with \
 get_papers_for_eligibility and batch_eligibility_screen, and finish with \
-generate_report. Every tool returns JSON; failures come back as {"error": ...}.
+generate_report. Every tool returns JSON; failures come back as {"error": ...}. \
+An argument of the wrong type (text for a number, a number for a list) is \
+refused before the tool runs, with a plain-text validation error from the MCP \
+library: send the types the tool schema gives.
 """
 
 # Initialize MCP server

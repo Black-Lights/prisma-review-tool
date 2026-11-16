@@ -258,3 +258,22 @@ def test_list_projects_marks_the_pinned_review_as_in_use(mcp_server, bare_worksp
     assert by_name["beta"]["in_use"] and not by_name["alpha"]["in_use"]
     assert any("PRISMA_CONFIG pins the config" in w and "switch_project is disabled" in w
                for w in listing["warnings"])
+
+
+# --------------------------------------------------------------------------- R-27
+
+
+def test_the_docs_promise_json_errors_except_for_argument_types(mcp_server, workspace):
+    import asyncio
+    from pathlib import Path
+
+    # What the instructions now say happens: a wrongly typed argument is refused
+    # by the MCP library before the tool runs, not as the tool's JSON error.
+    with pytest.raises(Exception, match="min_include_hits"):
+        asyncio.run(mcp_server.mcp.call_tool("set_review_config", {"min_include_hits": "three"}))
+    assert "wrong type" in mcp_server.INSTRUCTIONS
+    setup = (Path(__file__).resolve().parent.parent / "docs" / "MCP_SETUP.md").read_text(encoding="utf-8")
+    assert "an argument of the wrong type" in setup
+    # With the right types every problem is listed at once.
+    out = j(mcp_server.set_review_config(include_keywords=[""], sources=["pubmed"], min_include_hits=11))
+    assert "nothing was written" in out["error"] and len(out["problems"]) >= 3, out

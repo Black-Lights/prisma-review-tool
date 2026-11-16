@@ -129,7 +129,7 @@ and pass `--config config.yaml` to the CLI. To move on with the project instead,
 
 ## Available MCP Tools
 
-Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a crash.
+Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a crash. One exception: an argument of the wrong type (text where the schema asks for a number, a number where it asks for a list) is refused by the MCP library before the tool runs, as a plain-text validation error that names the argument. `set_review_config` then reports only that argument; once the types are right it lists every invalid value at once.
 
 ### Configuration and Projects
 
