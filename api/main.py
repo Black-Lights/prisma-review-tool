@@ -117,7 +117,52 @@ class LocalOriginMiddleware(CORSMiddleware):
             _server_port.reset(token)
 
 
+# ── Host names the API answers to ──────────────────────────────────────
+# A web page on another site can make the browser resolve its own host name
+# to 127.0.0.1 (DNS rebinding) and then read GET responses as same-origin.
+# The Host header still carries that foreign name, so only local names are
+# accepted, plus any listed in PRISMA_ALLOWED_HOSTS (comma-separated host
+# names without ports; "*" accepts any).
+
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
+_HOST_RE = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[^:\[\]/\s]+)(?::\d{1,5})?")
+
+
+def _configured_hosts() -> set[str]:
+    raw = os.environ.get("PRISMA_ALLOWED_HOSTS", "")
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def host_allowed(host_header: str | None) -> bool:
+    """Whether a request with this Host header may reach the API."""
+    extra = _configured_hosts()
+    if "*" in extra:
+        return True
+    match = _HOST_RE.fullmatch((host_header or "").strip())
+    if not match:
+        return False
+    host = match.group(1).lower().rstrip(".")
+    return host in LOCAL_HOSTS or host in extra
+
+
+class LocalHostMiddleware:
+    """Answer 400 to any request whose Host header is not a local (or listed) name."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] in ("http", "websocket")                 and not host_allowed(Headers(scope=scope).get("host")):
+            response = PlainTextResponse(
+                "Invalid host header. The API answers on localhost only; list other host "
+                "names in PRISMA_ALLOWED_HOSTS.", status_code=400)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 app.add_middleware(LocalOriginMiddleware)
+app.add_middleware(LocalHostMiddleware)  # outermost: checked before anything else
 
 app.include_router(reports.router, prefix="/api")
 app.include_router(papers.router, prefix="/api")

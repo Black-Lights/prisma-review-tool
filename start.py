@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PRISMA Review Tool — One-command launcher.
+PRISMA Review Tool: one-command launcher.
 
 Usage:
     python start.py              # Install (first run) + start app
@@ -8,6 +8,7 @@ Usage:
     python start.py --port 8000  # Specify backend port (frontend = port + 1000)
     python start.py --no-browser # Don't open browser automatically
     python start.py --cli        # Skip web app, just activate venv for CLI usage
+    python start.py --host 0.0.0.0  # Expose both servers on the network (no authentication!)
 """
 
 from __future__ import annotations
@@ -135,7 +136,7 @@ def ensure_config() -> None:
     template = ROOT / "config.template.yaml"
     if not config.exists() and template.exists():
         shutil.copy2(template, config)
-        log("Created config.yaml from template — edit it with your search queries", "warn")
+        log("Created config.yaml from template: edit it with your search queries", "warn")
 
 
 # ── Running ──────────────────────────────────────────────────────────────────
@@ -145,19 +146,31 @@ def ensure_config() -> None:
 # minute; without a bound, Ctrl+C and --reload wait for it.
 GRACEFUL_SHUTDOWN_SECONDS = 3
 
+# Both servers listen on the loopback interface only: the API has no
+# authentication and reads and writes the review files. --host changes it.
+DEFAULT_HOST = "127.0.0.1"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 
-def backend_command(port: int) -> list[str]:
-    """The command that starts the API server (uvicorn) on 127.0.0.1:port."""
+
+def backend_command(port: int, host: str = DEFAULT_HOST) -> list[str]:
+    """The command that starts the API server (uvicorn) on host:port."""
     return [
         venv_python(), "-m", "uvicorn",
         "api.main:app",
-        "--host", "127.0.0.1",
+        "--host", host,
         "--port", str(port),
         "--timeout-graceful-shutdown", str(GRACEFUL_SHUTDOWN_SECONDS),
     ]
 
 
-def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None:
+def frontend_command(port: int, host: str = DEFAULT_HOST) -> list[str]:
+    """The command that starts the web app (next dev) on host:port."""
+    npm = "npm.cmd" if IS_WIN else "npm"
+    return [npm, "run", "dev", "--", "--hostname", host, "--port", str(port)]
+
+
+def start_app(backend_port: int, frontend_port: int, open_browser: bool,
+              host: str = DEFAULT_HOST) -> None:
     """Start FastAPI backend + Next.js frontend, handle cleanup on exit."""
     processes: list[subprocess.Popen] = []
 
@@ -185,8 +198,12 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
         signal.signal(signal.SIGBREAK, cleanup)
 
     # Start backend (uvicorn)
+    if host not in LOOPBACK_HOSTS:
+        log(f"Listening on {host}: anyone who can reach this machine can read and change your "
+            f"reviews (the API has no login). Also set PRISMA_ALLOWED_HOSTS and "
+            f"PRISMA_CORS_ORIGINS to the names others use.", "warn")
     log(f"Starting API server on port {backend_port}...", "info")
-    backend_cmd = backend_command(backend_port)
+    backend_cmd = backend_command(backend_port, host)
     kwargs = {}
     if not IS_WIN:
         kwargs["preexec_fn"] = os.setsid
@@ -198,12 +215,11 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
 
     # Start frontend (next dev)
     log(f"Starting web app on port {frontend_port}...", "info")
-    npm = "npm.cmd" if IS_WIN else "npm"
     frontend_env = {
         **os.environ,
         "NEXT_PUBLIC_API_URL": f"http://localhost:{backend_port}",
     }
-    frontend_cmd = [npm, "run", "dev", "--", "--port", str(frontend_port)]
+    frontend_cmd = frontend_command(frontend_port, host)
     frontend_proc = subprocess.Popen(frontend_cmd, cwd=WEB_DIR, env=frontend_env, **kwargs)
     processes.append(frontend_proc)
 
@@ -250,7 +266,7 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
 def cli_mode() -> None:
     """Print activation instructions for CLI usage."""
     print()
-    print(f"\033[92m  PRISMA Review Tool — CLI Mode\033[0m")
+    print(f"\033[92m  PRISMA Review Tool: CLI Mode\033[0m")
     print()
     if IS_WIN:
         activate = f"{VENV_DIR}\\Scripts\\activate"
@@ -275,7 +291,7 @@ def cli_mode() -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISMA Review Tool — install & launch",
+        description="PRISMA Review Tool: install and launch",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -288,7 +304,10 @@ Examples:
     parser.add_argument("--install", action="store_true", help="Force reinstall all dependencies")
     parser.add_argument("--port", type=int, default=0, help="Backend port (0 = auto-detect, default 8000)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser automatically")
-    parser.add_argument("--cli", action="store_true", help="CLI mode — just set up venv, don't start web app")
+    parser.add_argument("--cli", action="store_true", help="CLI mode: just set up venv, don't start web app")
+    parser.add_argument("--host", default=DEFAULT_HOST,
+                        help="Interface both servers listen on (default 127.0.0.1, this computer "
+                             "only). 0.0.0.0 exposes them on your network without any login.")
     args = parser.parse_args()
 
     print()
@@ -323,7 +342,7 @@ Examples:
     frontend_port = find_free_port(backend_port + 1000, backend_port + 2000)
 
     # 5. Launch
-    start_app(backend_port, frontend_port, open_browser=not args.no_browser)
+    start_app(backend_port, frontend_port, open_browser=not args.no_browser, host=args.host)
 
 
 if __name__ == "__main__":

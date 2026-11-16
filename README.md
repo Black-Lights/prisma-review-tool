@@ -45,6 +45,7 @@ python start.py --install     # Force reinstall all dependencies
 python start.py --port 9000   # Custom backend port (frontend = port + 1000)
 python start.py --no-browser  # Don't auto-open browser
 python start.py --cli         # CLI mode only (no web app)
+python start.py --host 0.0.0.0  # Listen on your network (default: this computer only, 127.0.0.1)
 ```
 
 > **Requirements:** Python 3.10+ and Node.js 18+ must be installed.

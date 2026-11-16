@@ -187,4 +187,7 @@ A `projects/.active_project` that names a missing project is reported as an erro
 | `PRISMA_CONFIG` | MCP server, web API | Pin one config file, e.g. in `.mcp.json` |
 | `PRISMA_WORKSPACE` | MCP server, web API | Folder holding `config.yaml` and `projects/` (default: the install folder) |
 | `PRISMA_CORS_ORIGINS` | web API | Extra browser origins allowed to call the API, comma-separated (e.g. `http://my-host:4000`). By default only the local web app is allowed: port 3000 and the port `start.py` picks, on `localhost` and `127.0.0.1`. |
+| `PRISMA_ALLOWED_HOSTS` | web API | Extra host names the API answers to, comma-separated, without ports (e.g. `my-host,192.168.1.10`). By default it answers only to `localhost`, `127.0.0.1` and `[::1]`, and any other `Host` header gets HTTP 400 (this blocks DNS-rebinding pages from reading your reviews). `*` accepts any host. |
+
+`start.py` runs both servers on `127.0.0.1`, so only this computer can reach them. `python start.py --host 0.0.0.0` exposes them on your network; the API has no login, so do that only on a network you trust, and add the names other machines use to `PRISMA_ALLOWED_HOSTS` and `PRISMA_CORS_ORIGINS`.
 

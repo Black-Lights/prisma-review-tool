@@ -190,6 +190,7 @@ def api_client(workspace):
     from api.main import app
 
     deps.reset_project_caches()
-    with TestClient(app) as client:
+    # The API answers to local host names only (TestClient's default is "testserver").
+    with TestClient(app, base_url="http://localhost") as client:
         yield client
     deps.reset_project_caches()

@@ -281,7 +281,7 @@ async def import_project(file: UploadFile = File(...)):
     content = await file.read()
     try:
         with zipfile.ZipFile(io.BytesIO(content), "r") as zf:
-            # Determine project name from zip — use the folder name (stem of zip)
+            # The project name comes from the zip file name (its stem)
             zip_name = Path(file.filename).stem
             slug = _valid_name(workspace.slugify(zip_name))
             project_dir = projects_dir / slug

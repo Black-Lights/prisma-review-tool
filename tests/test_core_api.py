@@ -103,7 +103,7 @@ def test_startup_migrates_a_root_only_install(bare_workspace):
 
     bare_workspace.write_root_config(make_config("Root Review"), dataset=True)
     deps.reset_project_caches()
-    with TestClient(app) as client:
+    with TestClient(app, base_url="http://localhost") as client:
         assert client.get("/api/projects/active").json()["active"] == "root-review"
         assert client.get("/api/pipeline/status").json()["project"] == "Root Review"
     deps.reset_project_caches()

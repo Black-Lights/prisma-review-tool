@@ -251,3 +251,71 @@ def test_legacy_root_install_and_normal_projects_are_fine(bare_workspace):
     proj = Config.load(bare_workspace.add_project("alpha", make_config("A")))
     assert ws.output_dir_problem(proj) is None
     assert proj.readiness()["ready"] is True
+
+
+# --------------------------------------------------------------------------- OP-2
+
+
+def _launcher():
+    import importlib.util
+
+    from conftest import REPO_ROOT
+
+    spec = importlib.util.spec_from_file_location("prisma_start_op2", REPO_ROOT / "start.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_launcher_binds_both_servers_to_loopback_by_default():
+    launcher = _launcher()
+    backend = launcher.backend_command(8041)
+    assert backend[backend.index("--host") + 1] == "127.0.0.1"
+    frontend = launcher.frontend_command(9041)
+    assert frontend[frontend.index("--hostname") + 1] == "127.0.0.1"
+    assert frontend[frontend.index("--port") + 1] == "9041"
+
+
+def test_launcher_host_is_an_explicit_opt_in(monkeypatch):
+    launcher = _launcher()
+    monkeypatch.setattr("sys.argv", ["start.py", "--host", "0.0.0.0", "--port", "8041"])
+    seen = {}
+    monkeypatch.setattr(launcher, "ensure_python_venv", lambda: False)
+    monkeypatch.setattr(launcher, "install_python_deps", lambda force=False: None)
+    monkeypatch.setattr(launcher, "ensure_config", lambda: None)
+    monkeypatch.setattr(launcher, "ensure_node", lambda: True)
+    monkeypatch.setattr(launcher, "install_node_deps", lambda force=False: None)
+    monkeypatch.setattr(launcher, "find_free_port", lambda a, b: a)
+    monkeypatch.setattr(launcher, "start_app",
+                        lambda b, f, open_browser, host: seen.update(host=host, ports=(b, f)))
+    launcher.main()
+    assert seen == {"host": "0.0.0.0", "ports": (8041, 9041)}
+    assert launcher.frontend_command(9041, "0.0.0.0")[-3:] == ["0.0.0.0", "--port", "9041"]
+
+
+# --------------------------------------------------------------------------- OP-5
+
+
+@pytest.mark.parametrize("host", ["evil.example", "evil.example:8000", "attacker.localhost.evil",
+                                  "127.0.0.1.nip.io:8000", "", "localhost@evil"])
+def test_foreign_host_header_is_refused(api_client, host):
+    resp = api_client.get("/api/config", headers={"Host": host})
+    assert resp.status_code == 400
+    assert FAKE_SCOPUS_KEY not in resp.text
+
+
+@pytest.mark.parametrize("host", ["localhost", "localhost:8000", "127.0.0.1:9041", "[::1]:8000",
+                                  "LOCALHOST:8000"])
+def test_local_host_headers_work(api_client, host):
+    resp = api_client.get("/api/health", headers={"Host": host,
+                                                  "Origin": "http://localhost:3000"})
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_allowed_hosts_can_be_extended(api_client, monkeypatch):
+    assert api_client.get("/api/health", headers={"Host": "lab-box:8000"}).status_code == 400
+    monkeypatch.setenv("PRISMA_ALLOWED_HOSTS", "lab-box, 192.168.1.10")
+    assert api_client.get("/api/health", headers={"Host": "lab-box:8000"}).status_code == 200
+    assert api_client.get("/api/health", headers={"Host": "192.168.1.10"}).status_code == 200
+    assert api_client.get("/api/health", headers={"Host": "other"}).status_code == 400
