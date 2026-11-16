@@ -27,6 +27,23 @@ _BORDERLINE_SCORE = 85
 # Rows of the title score matrix computed at once (bounds memory on big years).
 _CHUNK_ROWS = 1000
 
+# Preprint servers: a record from one of them is not the version of record.
+_PREPRINT_DOI_PREFIXES = ("10.48550/",)  # arXiv
+_PREPRINT_TYPES = frozenset({"preprint", "posted-content"})
+_PREPRINT_VENUES = ("arxiv", "biorxiv", "medrxiv", "chemrxiv", "techrxiv", "ssrn",
+                    "research square", "preprints.org")
+
+
+def is_preprint(p: Paper) -> bool:
+    """Whether ``p`` is a preprint (arXiv DOI, preprint type, or a preprint server as venue)."""
+    doi = p.normalized_doi or ""
+    if doi.startswith(_PREPRINT_DOI_PREFIXES):
+        return True
+    if (p.type or "").strip().lower() in _PREPRINT_TYPES:
+        return True
+    venue = (p.venue or "").casefold()
+    return any(name in venue for name in _PREPRINT_VENUES) or (not p.venue and p.source == "arxiv")
+
 
 def _pick_canonical(papers: list[Paper], prefer_ids: frozenset[str] | set[str] = frozenset()) -> Paper:
     """Pick the record to keep: the most complete one, source priority as tie-break.
@@ -35,7 +52,8 @@ def _pick_canonical(papers: list[Paper], prefer_ids: frozenset[str] | set[str] =
     screening and eligibility decisions are keyed to it) always wins: the
     other records fill its gaps, so nothing is lost by keeping it. Otherwise
     an abstract matters most (keyword rules and AI screening read it), then a
-    DOI (dedup, download), then authors.
+    DOI (dedup, download), then authors, then the version of record over a
+    preprint (see also ``_absorb``).
     """
     def score(p: Paper) -> tuple:
         return (
@@ -43,6 +61,7 @@ def _pick_canonical(papers: list[Paper], prefer_ids: frozenset[str] | set[str] =
             1 if (p.abstract or "").strip() else 0,
             1 if p.doi else 0,
             1 if p.authors else 0,
+            0 if is_preprint(p) else 1,
             -SOURCE_PRIORITY.get(p.source, 99),
             len(p.abstract or ""),
             len(p.authors),
@@ -60,6 +79,10 @@ def _absorb(canonical: Paper, group: list[Paper]) -> None:
     Provenance (query names, sources, per-source ids) is the union over the
     group. Bibliographic fields the canonical lacks are taken from the first
     duplicate that has them, so the kept record loses nothing a duplicate knew.
+    When the kept record is a preprint and the group holds the published
+    version, the record keeps its text but takes the DOI, venue, type and
+    ISSN of the version of record (citations and exports point at it). Every
+    other DOI of the group is listed in ``alt_dois``.
     """
     others = [p for p in group if p is not canonical]
     canonical.matched_queries = sorted({q for g in group for q in g.matched_queries})
@@ -94,6 +117,24 @@ def _absorb(canonical: Paper, group: list[Paper]) -> None:
     known_oa = [p.is_oa for p in [canonical] + others if p.is_oa is not None]
     if known_oa:
         canonical.is_oa = any(known_oa)
+
+    group_dois = [d for p in [canonical] + others for d in [p.doi, *(p.alt_dois or [])] if d]
+    if is_preprint(canonical):
+        published = [p for p in others if p.doi and not is_preprint(p)]
+        if published:
+            vor = published[0]
+            canonical.doi = vor.doi
+            canonical.venue = vor.venue or canonical.venue
+            canonical.type = vor.type or canonical.type
+            canonical.issn = vor.issn or canonical.issn
+
+    kept_doi = canonical.normalized_doi
+    alt: list[str] = []
+    for doi in group_dois:
+        norm = Paper(title="", doi=doi).normalized_doi
+        if norm and norm != kept_doi and norm not in alt:
+            alt.append(norm)
+    canonical.alt_dois = alt
 
 
 def _first_author_last(paper: Paper) -> str:

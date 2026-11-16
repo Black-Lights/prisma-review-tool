@@ -51,6 +51,10 @@ class Paper:
     found_in_sources: list[str] = field(default_factory=list)
     source_ids: dict[str, str] = field(default_factory=dict)
 
+    # Other DOIs of the same work, from records dedup merged into this one
+    # (e.g. the arXiv DOI of a preprint whose published version is kept).
+    alt_dois: list[str] = field(default_factory=list)
+
     # Screening fields (populated later)
     screen_decision: Optional[str] = None  # "include", "exclude", "maybe"
     screen_reason: Optional[str] = None

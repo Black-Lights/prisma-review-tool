@@ -257,7 +257,9 @@ def download_papers(
         # Strategy 1: arXiv (always free). Dedup may have kept another source's
         # record, so also try the arXiv id it remembered in source_ids.
         pdf_url = (_get_arxiv_pdf_url(paper.doi, paper.url)
-                   or _get_arxiv_pdf_url(None, (paper.source_ids or {}).get("arxiv")))
+                   or _get_arxiv_pdf_url(None, (paper.source_ids or {}).get("arxiv"))
+                   or next((u for d in paper.alt_dois or [] if (u := _get_arxiv_pdf_url(d, None))),
+                           None))
 
         # Strategy 2: Unpaywall (free OA finder)
         if not pdf_url and email:

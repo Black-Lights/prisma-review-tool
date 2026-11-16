@@ -112,3 +112,57 @@ def test_a_post_filter_that_removes_most_records_is_a_warning(tmp_path, monkeypa
     assert "removed 4 of 4 records (venues (name) 4)" in warning
     log = json.loads((cfg.search_dir / "search_log.json").read_text(encoding="utf-8"))
     assert log["searches"][0]["removed_by_filter"]
+
+
+# --------------------------------------------------------------------------- R-15
+
+
+def _versions():
+    from prisma_review.models import Paper
+
+    title = "Hybrid LLM routing for cost efficient inference"
+    preprint = Paper(id="pre", title=title, year=2023, source="openalex", authors=["Doe, Jane"],
+                     doi="10.48550/arxiv.2302.02094", venue="arXiv (Cornell University)",
+                     type="preprint", abstract="x" * 1886)
+    published = Paper(id="vor", title=title, year=2023, source="openalex", authors=["Doe, Jane"],
+                      doi="10.1109/access.2023.3274199", venue="IEEE Access", type="article",
+                      issn="2169-3536", abstract="x" * 1882)
+    return preprint, published
+
+
+def test_dedup_keeps_the_version_of_record_over_its_preprint():
+    from prisma_review.dedup import deduplicate
+
+    preprint, published = _versions()
+    unique, log = deduplicate([preprint, published])
+    assert [p.id for p in unique] == ["vor"]
+    assert unique[0].venue == "IEEE Access"
+    assert unique[0].alt_dois == ["10.48550/arxiv.2302.02094"]
+    assert log[0]["duplicate_id"] == "pre"
+
+
+def test_a_kept_preprint_takes_the_doi_and_venue_of_its_published_version():
+    from prisma_review.dedup import deduplicate
+
+    preprint, published = _versions()
+    # A previous run kept the preprint, so decisions are keyed to its id.
+    unique, _ = deduplicate([preprint, published], prefer_ids={"pre"})
+    kept = unique[0]
+    assert kept.id == "pre" and kept.abstract == "x" * 1886
+    assert (kept.doi, kept.venue, kept.type, kept.issn) == (
+        "10.1109/access.2023.3274199", "IEEE Access", "article", "2169-3536")
+    assert kept.alt_dois == ["10.48550/arxiv.2302.02094"]
+
+
+def test_the_arxiv_pdf_is_still_found_through_the_alternative_doi(tmp_path, monkeypatch):
+    from prisma_review import download
+    from prisma_review.dedup import deduplicate
+
+    preprint, published = _versions()
+    kept = deduplicate([preprint, published])[0][0]
+    seen = []
+    monkeypatch.setattr(download, "_download_pdf", lambda url, path: seen.append(url) or False)
+    monkeypatch.setattr(download, "_get_semantic_scholar_pdf_url", lambda doi: None)
+    monkeypatch.setattr(download.time, "sleep", lambda s: None)
+    download.download_papers([kept], tmp_path)
+    assert seen == ["https://arxiv.org/pdf/2302.02094.pdf"]

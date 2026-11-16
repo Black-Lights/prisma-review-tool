@@ -138,7 +138,7 @@ fuzzy_title_threshold: 90    # Default: 90
 
 If you see false merges in `duplicates_log.csv`, increase the threshold.
 
-When several records are the same paper, the most complete one is kept: one with an abstract first (keyword rules and AI screening read it), then one with a DOI, then one with authors; the source only breaks ties. The kept record takes any field it lacks (DOI, venue, year, ...) from its duplicates and lists every query (`matched_queries`) and every source (`found_in_sources`, `source_ids`) that found the paper, so a paper found on arXiv keeps its arXiv link for PDF download.
+When several records are the same paper, the most complete one is kept: one with an abstract first (keyword rules and AI screening read it), then one with a DOI, then one with authors, then the published version over a preprint (arXiv and other preprint servers); the source only breaks ties. When a preprint is kept (it had the only abstract, or an earlier run kept it and decisions are keyed to it), it takes the DOI, venue, type and ISSN of its published version, so citations and exports point at the version of record; the other DOIs are listed in `alt_dois`. The kept record takes any field it lacks (DOI, venue, year, ...) from its duplicates and lists every query (`matched_queries`) and every source (`found_in_sources`, `source_ids`) that found the paper, so a paper found on arXiv keeps its arXiv link for PDF download.
 
 ## Source-side filters
 
