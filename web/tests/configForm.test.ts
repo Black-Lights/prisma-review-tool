@@ -9,6 +9,7 @@ import {
   secretDisplayValue,
   secretInputValue,
   secretState,
+  settingsView,
   splitDocTypes,
   versionMtimeMs,
 } from "../src/lib/configForm.ts";
@@ -80,4 +81,20 @@ test("WEB#16: document types the UI does not know are reported so they can be sh
     unknown: ["article", "letter"],
   });
   assert.deepEqual(splitDocTypes(undefined, known), { known: [], unknown: [] });
+});
+
+test("R-22: a form with unsaved edits stays on its project when another one becomes active", () => {
+  const alpha = { project: "alpha", label: "Alpha", config: { _version: "1-1" } };
+  const alphaNewer = { project: "alpha", label: "Alpha", config: { _version: "2-2" } };
+  const beta = { project: "beta", label: "Beta review", config: { _version: "9-9" } };
+
+  // Clean: follow the active project, wait while it loads.
+  assert.deepEqual(settingsView(null, null), { kind: "loading" });
+  assert.deepEqual(settingsView(null, beta), { kind: "form", form: beta, movedTo: null });
+  // Dirty on the active project: live config (so a change on disk is seen).
+  assert.deepEqual(settingsView(alpha, alphaNewer), { kind: "form", form: alphaNewer, movedTo: null });
+  // Dirty while the queries reload after a switch: keep the edits, never a spinner.
+  assert.deepEqual(settingsView(alpha, null), { kind: "form", form: alpha, movedTo: null });
+  // Dirty after the switch: keep the edits and say which project is active now.
+  assert.deepEqual(settingsView(alpha, beta), { kind: "form", form: alpha, movedTo: "Beta review" });
 });

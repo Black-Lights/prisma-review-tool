@@ -100,3 +100,32 @@ export function splitDocTypes(
     unknown: list.filter((t) => !known.includes(t)),
   };
 }
+
+/** A Settings form for one project: the project, its display label and its config. */
+export interface ProjectForm {
+  project: string;
+  label: string;
+  config: ConfigData;
+}
+
+/** What the Settings page shows; `movedTo` is set when the active project left the held form. */
+export type SettingsView =
+  | { kind: "loading" }
+  | { kind: "form"; form: ProjectForm; movedTo: string | null };
+
+/**
+ * Which form the Settings page renders.
+ *
+ * `held` is the form with unsaved edits (null while the form is clean) and
+ * `live` the active project with its config (null while either is loading).
+ * A clean form follows the active project. A form with unsaved edits stays
+ * on its own project, even while the queries reload after a switch made
+ * elsewhere (MCP switch_project, another tab), and `movedTo` names the
+ * project that is active now, so the page can offer to switch back or to
+ * discard the edits instead of dropping them.
+ */
+export function settingsView(held: ProjectForm | null, live: ProjectForm | null): SettingsView {
+  if (held === null) return live === null ? { kind: "loading" } : { kind: "form", form: live, movedTo: null };
+  if (live !== null && live.project === held.project) return { kind: "form", form: live, movedTo: null };
+  return { kind: "form", form: held, movedTo: live === null ? null : live.label || live.project || "none" };
+}

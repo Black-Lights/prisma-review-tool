@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchActiveProject,
   fetchConfig,
   fetchConfigReadiness,
+  switchProject,
   updateConfig,
   type ConfigData,
 } from "@/lib/api";
@@ -17,8 +18,10 @@ import {
   secretDisplayValue,
   secretInputValue,
   secretState,
+  settingsView,
   splitDocTypes,
   type ConfigConflict,
+  type ProjectForm,
 } from "@/lib/configForm";
 import { isIssn, normalizeVenue } from "@/lib/venues";
 import GlassCard from "@/components/GlassCard";
@@ -68,6 +71,7 @@ const rulesOf = (c: ConfigData) => ((c.screening ??= {}).rules ??= {});
 const keysOf = (c: ConfigData) => (c.api_keys ??= {});
 
 export default function SettingsPage() {
+  const queryClient = useQueryClient();
   const { data: activeProject, isLoading: projectLoading } = useQuery({
     queryKey: ["active-project"],
     queryFn: fetchActiveProject,
@@ -76,8 +80,30 @@ export default function SettingsPage() {
     queryKey: ["config"],
     queryFn: fetchConfig,
   });
+  // The form with unsaved edits (null while it is clean) and the project they belong to.
+  const [held, setHeld] = useState<ProjectForm | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
 
-  if (isLoading || projectLoading) {
+  const project = activeProject?.active ?? "";
+  const live: ProjectForm | null =
+    !isLoading && !projectLoading && config
+      ? { project, label: activeProject?.display_name || project, config }
+      : null;
+  // The form belongs to one project: a clean form is rebuilt when the active
+  // project changes (here, in another tab or through the MCP server), so edits
+  // made for one project can never be saved into another (WEB#3). A form with
+  // unsaved edits stays on its project and says so (R-22).
+  const view = settingsView(held, live);
+
+  if (view.kind === "loading") {
+    if (!isLoading && !projectLoading && !config) {
+      return (
+        <GlassCard className="border-l-4 border-l-accent-red">
+          <p className="text-sm text-accent-red">Could not load the configuration.</p>
+          {error && <p className="text-sm text-text-secondary mt-1">{error.message}</p>}
+        </GlassCard>
+      );
+    }
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
@@ -85,26 +111,58 @@ export default function SettingsPage() {
     );
   }
 
-  if (!config) {
-    return (
-      <GlassCard className="border-l-4 border-l-accent-red">
-        <p className="text-sm text-accent-red">Could not load the configuration.</p>
-        {error && <p className="text-sm text-text-secondary mt-1">{error.message}</p>}
-      </GlassCard>
-    );
-  }
+  const { form, movedTo } = view;
+  const switchBack = async () => {
+    setSwitchError(null);
+    try {
+      await switchProject(form.project);
+      queryClient.invalidateQueries({ queryKey: ["active-project"] });
+      queryClient.invalidateQueries({ queryKey: ["config"] });
+    } catch (err) {
+      setSwitchError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
-  // The form belongs to one project: when the active project changes (here,
-  // in another tab or through the MCP server) it is rebuilt from scratch, so
-  // edits made for one project can never be saved into another (WEB#3).
-  const project = activeProject?.active ?? "";
   return (
-    <SettingsForm
-      key={project}
-      project={project}
-      projectLabel={activeProject?.display_name || project}
-      config={config}
-    />
+    <div className="space-y-4">
+      {movedTo !== null && (
+        <div role="alert" className="glass p-4 border-l-4 border-l-accent-amber space-y-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-accent-amber shrink-0 mt-0.5" />
+            <p className="text-sm text-text-primary">
+              The active project changed to <b>{movedTo}</b> while you were editing <b>{form.label}</b>.
+              Your edits to {form.label} are kept here but not saved. Switch back to {form.label} to save
+              them, or discard them to load the settings of {movedTo}.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={switchBack}
+              className="px-3 py-1.5 rounded-lg text-sm bg-primary text-bg-base font-semibold hover:opacity-90"
+            >
+              Switch back to {form.label}
+            </button>
+            <button
+              type="button"
+              onClick={() => setHeld(null)}
+              className="px-3 py-1.5 rounded-lg text-sm border border-border-glass text-text-secondary hover:text-text-primary"
+            >
+              Discard my edits
+            </button>
+          </div>
+          {switchError && <p className="text-sm text-accent-red">Could not switch back: {switchError}</p>}
+        </div>
+      )}
+      <SettingsForm
+        key={form.project}
+        project={form.project}
+        projectLabel={form.label}
+        config={form.config}
+        locked={movedTo !== null}
+        onDirtyChange={(dirty, cfg) => setHeld(dirty ? { ...form, config: cfg } : null)}
+      />
+    </div>
   );
 }
 
@@ -112,10 +170,16 @@ function SettingsForm({
   project,
   projectLabel,
   config,
+  locked,
+  onDirtyChange,
 }: {
   project: string;
   projectLabel: string;
   config: ConfigData;
+  /** Another project is active now: the edits are kept but cannot be saved. */
+  locked: boolean;
+  /** Called when the form gets or loses unsaved edits, with the config they started from. */
+  onDirtyChange: (dirty: boolean, config: ConfigData) => void;
 }) {
   const queryClient = useQueryClient();
 
@@ -143,6 +207,18 @@ function SettingsForm({
     queryKey: ["config-readiness"],
     queryFn: fetchConfigReadiness,
   });
+
+  // Tell the page when edits start and end, so it keeps this form while the
+  // active project changes elsewhere.
+  const notifyDirty = useRef(onDirtyChange);
+  const configRef = useRef(config);
+  useEffect(() => {
+    notifyDirty.current = onDirtyChange;
+    configRef.current = config;
+  });
+  useEffect(() => {
+    notifyDirty.current(dirty, configRef.current);
+  }, [dirty]);
 
   // Ask before closing or reloading the tab with unsaved edits.
   useEffect(() => {
@@ -308,7 +384,7 @@ function SettingsForm({
           <button
             type="button"
             onClick={handleSave}
-            disabled={!dirty || mutation.isPending}
+            disabled={!dirty || locked || mutation.isPending}
             className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary text-bg-base font-semibold hover:opacity-90 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
