@@ -5,11 +5,12 @@ which ``config.yaml`` they read and write. Both resolve it here, in order:
 
 1. ``PRISMA_CONFIG`` (environment) pins one config file, e.g. in ``.mcp.json``;
 2. otherwise ``projects/.active_project`` names the active project;
-3. only when there is no marker at all, the root ``config.yaml`` applies
-   (installs that never created a project).
+3. only when there is no marker and no project at all, the root
+   ``config.yaml`` applies (installs that never created a project).
 
 A marker naming an invalid or missing project is an error, never a silent
-fallback to some other review. Project names are folder slugs: a name is valid
+fallback to some other review, and so is a missing marker while projects
+exist (deleting the active project activates nothing). Project names are folder slugs: a name is valid
 only if it equals ``slugify(name)`` and stays directly inside ``projects/``.
 
 The workspace root (the folder holding ``config.yaml`` and ``projects/``) is
@@ -53,6 +54,10 @@ class ProjectExists(WorkspaceError):
 
 class ActiveProjectError(WorkspaceError):
     """projects/.active_project is empty, invalid or names a missing project."""
+
+
+class NoActiveProject(ActiveProjectError):
+    """Projects exist but none is active (e.g. the active one was deleted)."""
 
 
 class ConfigNotFound(WorkspaceError):
@@ -147,6 +152,11 @@ def list_project_names(root: str | Path | None = None) -> list[str]:
     return sorted(e.name for e in pdir.iterdir() if e.is_dir() and not e.name.startswith("."))
 
 
+def projects_with_config(root: str | Path | None = None) -> list[str]:
+    """Project folders that hold a config.yaml (sorted)."""
+    return [n for n in list_project_names(root) if (projects_dir(root) / n / "config.yaml").is_file()]
+
+
 def project_for_config(config_path: str | Path, root: str | Path | None = None) -> str | None:
     """The project name if ``config_path`` is projects/<name>/config.yaml, else None."""
     path = Path(config_path).resolve()
@@ -210,10 +220,29 @@ def ensure_not_pinned() -> None:
         )
 
 
+def no_active_project_message(root: str | Path | None = None) -> str | None:
+    """Why there is no review to use although projects exist (no marker), or None.
+
+    Nothing picks a project on the user's behalf: after the active project is
+    deleted, every tool asks for a choice instead of moving to another review.
+    """
+    if marker_path(root).exists() or not projects_with_config(root):
+        return None
+    msg = ("No active project is selected. Pick one with list_projects and switch_project, "
+           "or on the web Projects page.")
+    root_config = _root(root) / "config.yaml"
+    if root_config.is_file():
+        msg += (f" The root config.yaml ({root_config}) is not used while projects exist; "
+                f"set {ENV_CONFIG}={root_config} to work on it.")
+    return msg
+
+
 def resolve(root: str | Path | None = None) -> Resolution:
     """Resolve the config file to use: PRISMA_CONFIG, else the active project, else root.
 
-    Raises ConfigNotFound or ActiveProjectError instead of guessing.
+    The root config.yaml applies only when there is no project at all (an
+    install that never created one). Raises ConfigNotFound, ActiveProjectError
+    or NoActiveProject instead of guessing.
     """
     pin = pinned_config_path()
     if pin is not None:
@@ -224,6 +253,9 @@ def resolve(root: str | Path | None = None) -> Resolution:
     name = read_active_project(root)
     if name is not None:
         return Resolution(projects_dir(root) / name / "config.yaml", name, "marker")
+    missing = no_active_project_message(root)
+    if missing:
+        raise NoActiveProject(missing)
 
     root_config = _root(root) / "config.yaml"
     if not root_config.is_file():
@@ -377,11 +409,13 @@ def create_project(display_name: str, root: str | Path | None = None) -> str:
 def migrate_root_to_projects(root: str | Path | None = None) -> str | None:
     """Move a root-only install into projects/ (config copied, output copied, marker set).
 
-    Runs only when there is no marker and a root config.yaml exists; the root
-    files are left in place for the CLI. Never overwrites an existing project:
-    if projects/<slug>/config.yaml already exists it is assumed to be an earlier
-    migration of the same review and simply becomes active. Returns the
-    project name that became active, or None if nothing was done.
+    Runs only when there is no marker, a root config.yaml exists and projects/
+    holds no other project (so a deleted active project is never replaced by
+    the root review); the root files are left in place. Never overwrites an
+    existing project: if projects/<slug>/config.yaml already exists it is
+    assumed to be an earlier migration of the same review and simply becomes
+    active. Returns the project name that became active, or None if nothing
+    was done.
     """
     base = _root(root)
     pdir = projects_dir(base)
@@ -395,6 +429,8 @@ def migrate_root_to_projects(root: str | Path | None = None) -> str | None:
         old_output = Config(cfg, base_dir=base).output_dir
         project = cfg.get("project") if isinstance(cfg.get("project"), dict) else {}
         slug = validate_project_name(slugify(project.get("name") or "default-project"), base)
+        if any(name != slug for name in projects_with_config(base)):
+            return None
         dest = pdir / slug
         if not (dest / "config.yaml").exists():
             dest.mkdir(parents=True, exist_ok=True)

@@ -178,7 +178,9 @@ The web app and the MCP server keep each review in its own folder under `project
 
 1. `PRISMA_CONFIG`: a path to one config file (pins that review).
 2. `projects/.active_project`: the project selected in the web app (or with the MCP `switch_project` tool).
-3. The root `config.yaml`, only when there is no `projects/.active_project` (CLI-style installs). On first start the web app copies it into `projects/`.
+3. The root `config.yaml`, only when there is no `projects/.active_project` and no project in `projects/` (CLI-style installs). On first start the web app copies it into `projects/`.
+
+Deleting the active project leaves no project active: pick the next one on the Projects page (or with `switch_project`); no tool moves to another review on its own.
 
 A `projects/.active_project` that names a missing project is reported as an error rather than silently replaced by another config.
 

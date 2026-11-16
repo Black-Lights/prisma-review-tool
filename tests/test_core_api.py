@@ -71,8 +71,12 @@ def test_project_routes_still_work(api_client, workspace):
     assert api_client.get("/api/projects/export/gamma").status_code == 200
     names = [p["name"] for p in api_client.get("/api/projects").json()["projects"]]
     assert names == ["alpha", "beta-review", "gamma"]
-    # Deleting the active project activates another one that has a config.
-    assert api_client.delete("/api/projects/beta-review").status_code == 200
+    # Deleting the active project activates nothing (R-6): the user picks the next one.
+    assert api_client.delete("/api/projects/beta-review").json()["active"] is None
+    assert not workspace.marker.exists()
+    # Deleting another project keeps the active one.
+    assert api_client.post("/api/projects/alpha/switch").status_code == 200
+    assert api_client.delete("/api/projects/gamma").json()["active"] == "alpha"
     assert workspace.marker.read_text(encoding="utf-8") == "alpha"
 
 

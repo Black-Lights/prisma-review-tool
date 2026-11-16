@@ -177,7 +177,7 @@ export default function ProjectsPage() {
         <div role="alert" className="glass p-4 border-l-4 border-l-accent-amber flex items-start gap-2">
           <AlertTriangle size={16} className="text-accent-amber shrink-0 mt-0.5" />
           <div className="text-sm">
-            <p className="font-semibold text-text-primary">The active project setting is not usable</p>
+            <p className="font-semibold text-text-primary">No usable active project</p>
             <p className="text-text-secondary">{data.active_error}</p>
             <p className="text-text-muted text-xs mt-1">Switch to one of the projects below to fix it.</p>
           </div>

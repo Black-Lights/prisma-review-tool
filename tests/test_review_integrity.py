@@ -279,3 +279,43 @@ def test_cli_search_reports_the_failure_and_run_all_stops(workspace, monkeypatch
     out = capsys.readouterr().out
     assert "[SEARCH] Failed." in out and "Pipeline stopped" in out and "[DEDUP]" not in out
     assert len(load_papers(config.search_dir / "all_records.json")) == 7
+
+
+# --------------------------------------------------------------------------- R-6
+
+
+def test_deleting_the_active_project_activates_nothing(api_client, mcp_server, workspace):
+    workspace.add_project("active-project", active=False)
+    workspace.add_project("zz-scratch", active=True)
+    workspace.write_root_config(make_config("Leftover root review"))
+    assert j(mcp_server.get_review_config())["project"] == "zz-scratch"
+
+    body = api_client.delete("/api/projects/zz-scratch").json()
+    assert body["status"] == "deleted" and body["active"] is None
+    assert not workspace.marker.exists()
+
+    # Neither the web app nor the MCP server picks a review nobody chose.
+    out = j(mcp_server.get_review_config())
+    assert "error" in out and "No active project" in out["error"]
+    assert "error" in j(mcp_server.start_pipeline())
+    resp = api_client.get("/api/config")
+    assert resp.status_code == 409 and "No active project" in resp.json()["detail"]
+    active = api_client.get("/api/projects/active").json()
+    assert active["active"] is None and "No active project" in active["error"]
+    listing = j(mcp_server.list_projects())
+    assert listing["active"] is None and "No active project" in listing["active_error"]
+
+    assert api_client.post("/api/projects/alpha/switch").status_code == 200
+    assert j(mcp_server.get_review_config())["project"] == "alpha"
+
+
+def test_no_marker_with_projects_does_not_fall_back_to_the_root_config(bare_workspace):
+    from prisma_review import workspace as ws
+
+    bare_workspace.write_root_config(make_config("Leftover root review"))
+    bare_workspace.add_project("alpha", active=False)
+    with pytest.raises(ws.ActiveProjectError, match="No active project"):
+        ws.resolve()
+    # The API start-up migration does not activate the root review either.
+    assert ws.migrate_root_to_projects() is None
+    assert not bare_workspace.marker.exists()

@@ -837,6 +837,8 @@ def list_projects() -> str:
         active = workspace.read_active_project()
     except workspace.WorkspaceError as exc:
         active_error = str(exc)
+    if active is None and active_error is None and workspace.pinned_config_path() is None:
+        active_error = workspace.no_active_project_message()
 
     projects = []
     for entry_name in workspace.list_project_names():

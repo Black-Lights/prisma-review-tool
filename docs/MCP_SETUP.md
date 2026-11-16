@@ -100,7 +100,9 @@ Every tool acts on one review project. The server picks its `config.yaml` in thi
 
 1. **`PRISMA_CONFIG`** environment variable: a path to a config file (absolute, or relative to the server's working directory). Set it in the agent's MCP config to pin one review.
 2. **The active project**: `projects/.active_project` names a folder in `projects/`. This is the same marker the web app's project switcher writes, so without a pin the agent follows the project you select in the web app.
-3. **The root `config.yaml`**: only when there is no `projects/.active_project` at all (an install that never created a project).
+3. **The root `config.yaml`**: only when there is no `projects/.active_project` and no project in `projects/` (an install that never created a project).
+
+Nothing picks a project for you: when projects exist but none is active (for example right after the active project was deleted in the web app), every tool answers "No active project is selected" until you choose one with `switch_project` or on the web Projects page.
 
 If `projects/.active_project` names a project that does not exist (or is not a valid project folder name), every tool returns an error saying so instead of quietly using another config. Fix it with `list_projects` and `switch_project`, or in the web app's Projects page.
 

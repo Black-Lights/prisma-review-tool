@@ -42,11 +42,18 @@ def _valid_name(name: str) -> str:
 
 
 def _active_project() -> tuple[str | None, str | None]:
-    """(active project name, problem with the marker) without raising."""
+    """(active project name, why none is usable) without raising.
+
+    The reason covers an invalid marker and projects without a marker (the
+    active one was deleted): the user has to pick one.
+    """
     try:
-        return workspace.read_active_project(), None
+        name = workspace.read_active_project()
     except workspace.WorkspaceError as exc:
         return None, str(exc)
+    if name is None and workspace.pinned_config_path() is None:
+        return None, workspace.no_active_project_message()
+    return name, None
 
 
 def _require_active_project() -> str:
@@ -155,7 +162,7 @@ def get_active_project():
 
 @router.delete("/{name}")
 def delete_project(name: str):
-    """Delete a project directory."""
+    """Delete a project directory (deleting the active one leaves no project active)."""
     name = _valid_name(name)
     projects_dir = get_projects_dir()
     project_dir = projects_dir / name
@@ -170,17 +177,15 @@ def delete_project(name: str):
         raise HTTPException(status_code=409, detail="Cannot delete a project while its pipeline is running")
     shutil.rmtree(project_dir)
 
-    # If we deleted the active project, switch to another or clear
+    # Deleting the active project activates nothing: the web app and the MCP
+    # server (which follows the marker) must not move to a review nobody chose.
     if name == active:
-        remaining = [n for n in workspace.list_project_names()
-                     if (projects_dir / n / "config.yaml").is_file()]
-        if remaining:
-            workspace.set_active_project(remaining[0])
-        else:
-            workspace.clear_active_project()
+        workspace.clear_active_project()
         reset_project_caches()
+        return {"status": "deleted", "name": name, "active": None,
+                "note": "No project is active now: pick one to keep working."}
 
-    return {"status": "deleted", "name": name}
+    return {"status": "deleted", "name": name, "active": active}
 
 
 @router.post("/{name}/duplicate")
