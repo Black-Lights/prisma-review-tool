@@ -271,6 +271,47 @@ def resolve_config_path(root: str | Path | None = None) -> Path:
     return resolve(root).config_path
 
 
+def root_config_notice(res: Resolution | None = None, root: str | Path | None = None) -> str | None:
+    """A warning when the active project is used while a root config.yaml with a review exists.
+
+    Version 1.5 of the MCP server and the CLI always read the root
+    config.yaml, while the web app copied it into projects/ once. After an
+    upgrade every tool follows the active project, so a review that was run
+    from the root config is no longer the one in use. An untouched copy of the
+    template without results is not worth a warning. Never raises.
+    """
+    try:
+        res = res if res is not None else resolve(root)
+        root_cfg = _root(root) / "config.yaml"
+        if res.source != "marker" or not root_cfg.is_file():
+            return None
+        data = load_raw_config(root_cfg)
+        root_config = Config(data, base_dir=root_cfg.parent, path=root_cfg)
+        root_state = root_config.state_file
+        has_results = root_state.is_file()
+        try:
+            pristine = data == load_raw_config(template_path())
+        except (OSError, ValueError):
+            pristine = False
+        if pristine and not has_results:
+            return None
+        msg = (f"The root config.yaml ({root_cfg}) is not used: every tool follows the active "
+               f"project '{res.project}' ({res.config_path}). Version 1.5 of the MCP server and "
+               f"the CLI read the root config, so a review run that way has its results in "
+               f"{root_config.output_dir}. To keep working on it, set {ENV_CONFIG}={root_cfg} "
+               f"(for the MCP server, in the env block of .mcp.json) or pass --config to the "
+               f"CLI; to stop this warning, rename the root config.yaml.")
+        if has_results:
+            project_state = Config.load(res.config_path).state_file
+            if not project_state.is_file() \
+                    or root_state.stat().st_mtime > project_state.stat().st_mtime:
+                msg = ("Check which review you mean: the root review's results are newer than "
+                       "the active project's. " + msg)
+        return msg
+    except (WorkspaceError, OSError, ValueError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Where a project may write its results
 # ---------------------------------------------------------------------------

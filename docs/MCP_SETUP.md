@@ -115,6 +115,18 @@ What the server does to make this visible:
 
 Advanced: `PRISMA_WORKSPACE` points the tool at a different folder holding `config.yaml` and `projects/` (default: the install folder).
 
+### Upgrading from 1.5
+
+Version 1.5 of the MCP server and the CLI always read the root `config.yaml`, while the web app copied that review into `projects/<name>/` the first time it started and made the copy active. From 1.6 on, every tool (web app, MCP server and CLI) follows the active project. If you ran your review through the MCP server or the CLI in 1.5 and opened the web app once, the active project may be an old copy of it.
+
+`get_review_config`, `list_projects`, the server's startup line, the CLI and the web dashboard warn about this: "The root config.yaml (...) is not used", with "Check which review you mean" in front when the root review's results are newer than the active project's. To keep working on the root review, pin it in the agent's MCP config:
+
+```json
+"env": { "PRISMA_CONFIG": "<path-to-prisma_tool>/config.yaml" }
+```
+
+and pass `--config config.yaml` to the CLI. To move on with the project instead, rename the root `config.yaml` (for example to `config.v1.5.yaml`) so the warning stops.
+
 ## Available MCP Tools
 
 Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a crash.
@@ -191,7 +203,7 @@ Broad search queries often return hundreds of "included" papers after the first 
 
 ```
 1. Check the setup:            "Show me the review config"   (get_review_config)
-2. Run the pipeline:           "Start the pipeline"          (or: python -m prisma_review run-all)
+2. Run the pipeline:           "Start the pipeline"          (or: python -m prisma_review run-all, same project)
 3. Ask Claude to screen:       "Screen my 'maybe' papers about [topic]"
 4. Ask Claude for eligibility:  "Do eligibility screening on included papers.
                                  Only include papers directly about [specific criteria]."

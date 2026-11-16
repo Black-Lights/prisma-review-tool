@@ -21,6 +21,7 @@ from fastapi import APIRouter, HTTPException
 from prisma_review.config import (
     PUBLIC_API_KEY_FIELDS, Config, ConfigError, config_version, load_raw_config, save_raw_config,
 )
+from prisma_review import workspace
 from prisma_review.storage import project_lock
 from api.deps import active_config_path, init_config
 
@@ -79,12 +80,20 @@ def read_config():
 
 @router.get("/config/readiness")
 def read_config_readiness():
-    """Whether the config is ready to run, with problems and non-blocking warnings."""
+    """Whether the config is ready to run, with problems and non-blocking warnings.
+
+    The warnings include the notice that a root config.yaml with its own
+    review is not used (an install upgraded from 1.5).
+    """
     path = active_config_path()
     try:
-        return Config.load(path).readiness()
+        readiness = Config.load(path).readiness()
     except (ConfigError, FileNotFoundError) as exc:
         raise HTTPException(status_code=409, detail=str(exc))
+    notice = workspace.root_config_notice()
+    if notice:
+        readiness["warnings"] = [notice] + list(readiness["warnings"])
+    return readiness
 
 
 @router.put("/config")

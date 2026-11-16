@@ -175,12 +175,15 @@ def install_node_deps(force: bool = False) -> None:
 
 
 def ensure_config() -> None:
-    """Copy config.template.yaml to config.yaml if it doesn't exist."""
+    """Copy config.template.yaml to config.yaml on a fresh install (no config, no project)."""
     config = ROOT / "config.yaml"
     template = ROOT / "config.template.yaml"
-    if not config.exists() and template.exists():
+    projects = ROOT / "projects"
+    has_projects = projects.is_dir() and any((p / "config.yaml").is_file() for p in projects.iterdir())
+    if not config.exists() and not has_projects and template.exists():
         shutil.copy2(template, config)
-        log("Created config.yaml from template: edit it with your search queries", "warn")
+        log("Created config.yaml from the template. The web app turns it into your first project: "
+            "fill it in on the Settings page (CLI only: edit config.yaml)", "warn")
 
 
 # ── Running ──────────────────────────────────────────────────────────────────

@@ -188,6 +188,9 @@ def log_startup() -> None:
         via = {"env": workspace.ENV_CONFIG, "marker": "projects/.active_project",
                "root": "root config.yaml, no active project"}[res.source]
         lines.append(f"  project: {res.project or '-'} | config: {res.config_path} (from {via})")
+        notice = workspace.root_config_notice(res)
+        if notice:
+            lines.append(f"  warning: {notice}")
         try:
             lines += [f"  warning: {w}" for w in Config.load(res.config_path).readiness()["warnings"]]
         except (ConfigError, OSError) as exc:
@@ -234,8 +237,8 @@ def get_screening_stats() -> str:
     state = load_state(config.state_file)
 
     if not state:
-        return _error("No pipeline state found. Run start_pipeline (or 'python -m prisma_review search') first.",
-                      **_target(config))
+        return _error("No pipeline state found. Run start_pipeline (or 'python -m prisma_review "
+                      "run-all', which uses the same project) first.", **_target(config))
 
     computed = project_stats(config, state)
     result = {
@@ -257,7 +260,8 @@ def get_review_config() -> str:
     (`resolved_from`: env = PRISMA_CONFIG, marker = active project, root),
     the sources, date window, queries, screening rules and source-side
     filters, plus `ready`, `problems` (what blocks a run) and `warnings`
-    (what changes results, e.g. OpenAlex without an API key).
+    (what changes results, e.g. OpenAlex without an API key, or a root
+    config.yaml with its own review that the active project now hides).
     `query_warnings` says, per source, which parts of each query it cannot
     use; `filter_warnings` says which filters are applied locally after fetch
     or ignored. Use set_review_config to change any of it.
@@ -265,6 +269,7 @@ def get_review_config() -> str:
     res = workspace.resolve()
     config = Config.load(res.config_path)
     readiness = config.readiness()
+    notice = workspace.root_config_notice(res)
     return _dumps({
         **_target(config),
         "resolved_from": res.source,
@@ -288,7 +293,7 @@ def get_review_config() -> str:
         "filter_warnings": _safe_warnings(filter_warnings, config),
         "ready": readiness["ready"],
         "problems": readiness["problems"],
-        "warnings": readiness["warnings"],
+        "warnings": ([notice] if notice else []) + readiness["warnings"],
     })
 
 
@@ -859,6 +864,8 @@ def list_projects() -> str:
     result: dict[str, Any] = {"active": active, "projects": projects}
     if active_error:
         result["active_error"] = active_error
+    notice = workspace.root_config_notice()
+    result["warnings"] = [notice] if notice else []
     pin = workspace.pinned_config_path()
     if pin is not None:
         result["pinned_config"] = str(pin)

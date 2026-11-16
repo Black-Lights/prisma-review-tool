@@ -68,7 +68,9 @@ An out-of-date environment is reported with this command instead of a bare `Modu
 
 ### Configure
 
-Edit `config.yaml` with your search queries, date range, and screening keywords — or use the **Settings** page in the web app. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
+Use the **Settings** page in the web app to set your search queries, date range and screening keywords. Each review is a project with its own `projects/<name>/config.yaml`, which you can also edit by hand; the web app, the MCP server and the CLI all work on the active project. A root `config.yaml` is used only by an install that has no projects (CLI-only use). See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
+
+Upgrading from 1.5 and you ran your review from the root `config.yaml` with the MCP server or the CLI? Read [Upgrading from 1.5](docs/MCP_SETUP.md#upgrading-from-15) first: 1.6 follows the active project instead.
 
 ### CLI Usage (Without Web App)
 
@@ -97,6 +99,8 @@ python -m prisma_review export        # Export .bib + .csv
 # Check progress
 python -m prisma_review status
 ```
+
+The CLI works on the same review as the web app and the MCP server (`PRISMA_CONFIG`, else the active project, else the root `config.yaml`), and prints which config it uses. `--config path/to/config.yaml` picks another one.
 
 ### (Optional) AI Screening with Any MCP-Compatible Agent
 

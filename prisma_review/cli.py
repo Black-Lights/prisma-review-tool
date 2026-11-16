@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+from pathlib import Path
 
-from . import pipeline
+from . import pipeline, workspace
 from .config import Config
 from .models import load_papers
 from .pipeline import RunActiveError, StepError
@@ -233,23 +235,62 @@ def cmd_run_all(config: Config) -> None:
     cmd_status(config)
 
 
-def main():
+def resolve_cli_config(arg: str | None) -> Path:
+    """The config the CLI uses: --config, else the review the web app and MCP server use.
+
+    Without --config: PRISMA_CONFIG, then a config.yaml in the current folder
+    when that folder is not the workspace and PRISMA_WORKSPACE is not set
+    (running the CLI from a review folder of its own), then the active
+    project, then the root config.yaml (only when no project exists).
+    Raises workspace.WorkspaceError.
+    """
+    if arg:
+        return Path(arg)
+    if workspace.pinned_config_path() is None and not os.environ.get(workspace.ENV_WORKSPACE, "").strip():
+        here = Path.cwd() / "config.yaml"
+        if here.is_file() and os.path.normcase(str(Path.cwd().resolve()))                 != os.path.normcase(str(workspace.workspace_root())):
+            return here.resolve()
+    return workspace.resolve_config_path()
+
+
+def _describe_choice(arg: str | None, path: Path) -> str:
+    if arg:
+        return "--config"
+    try:
+        res = workspace.resolve()
+    except workspace.WorkspaceError:
+        return "config.yaml in the current folder"
+    if os.path.normcase(str(res.config_path)) != os.path.normcase(str(path)):
+        return "config.yaml in the current folder"
+    return {"env": workspace.ENV_CONFIG, "marker": f"active project '{res.project}'",
+            "root": "root config.yaml, no project"}[res.source]
+
+
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         prog="prisma-review",
         description="PRISMA Review Tool - Automated systematic literature review",
     )
     parser.add_argument("command", choices=["search", "dedup", "screen-rules", "report", "export", "download", "status", "run-all"],
                         help="Command to run")
-    parser.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: config.yaml)")
+    parser.add_argument("--config", default=None,
+                        help="Path to a config.yaml (default: the review the web app and the MCP "
+                             "server use: PRISMA_CONFIG, else the active project, else config.yaml)")
     parser.add_argument("--force", action="store_true", help="Re-run step even if output exists")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
-        config = Config.load(args.config)
-    except FileNotFoundError as e:
+        path = resolve_cli_config(args.config)
+        config = Config.load(path)
+    except (FileNotFoundError, workspace.WorkspaceError, ValueError) as e:
         print(f"Error: {e}")
         sys.exit(1)
+    print(f"Config: {path} ({_describe_choice(args.config, path)})")
+    if not args.config:
+        notice = workspace.root_config_notice()
+        if notice:
+            print(f"  [!] {notice}")
 
     commands = {
         "search": cmd_search,
