@@ -76,11 +76,13 @@ Recommended: **3-5 focused queries** rather than 1 massive query.
 
 Each database has different search syntax. The tool automatically translates your Boolean queries:
 
-- **arXiv**: Converts to arXiv API field queries
-- **OpenAlex**: Simplifies to text search (OpenAlex doesn't support full Boolean)
-- **Semantic Scholar**: Simplifies to keyword search
+- **OpenAlex**: runs the Boolean query on title, abstract and keywords (stemmed; a query with `*` or `?` wildcards uses the unstemmed exact search)
+- **Scopus**: runs it as `TITLE-ABS-KEY(...)`
+- **Semantic Scholar**: runs it as a Boolean bulk search on title and abstract
+- **arXiv**: converts it to arXiv API field queries
+- **Crossref**: has no Boolean search; it ranks the plain terms by relevance and cannot exclude `NOT` terms
 
-This means your results may vary by source — this is expected and documented in PRISMA.
+`get_review_config` (MCP) and the pipeline warn about anything a source cannot use, and `01_search/search_log.json` records the exact search sent to each source (PRISMA 2020 item 7). Results therefore vary by source; this is expected and documented.
 
 ## Database Sources
 
@@ -93,7 +95,7 @@ This means your results may vary by source — this is expected and documented i
 
 ### API Keys
 
-- **OpenAlex**: Free, no key needed. Add your email for faster responses
+- **OpenAlex**: Free. Without a key it works up to 10,000 results per query on a small shared daily budget; a free key (`api_keys.openalex_key`, from openalex.org/settings/api) gives 10 times the budget and is needed to page past 10,000 results. The contact email (`openalex_email`) does not replace the key
 - **arXiv**: Free, no key needed. Rate-limits aggressively on pagination
 - **Semantic Scholar**: Free, no key needed. Heavy rate limits, may return 0 results
 - **Scopus**: Requires institutional API key. Best metadata quality

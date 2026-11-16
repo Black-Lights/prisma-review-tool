@@ -1,122 +1,180 @@
 """FastAPI backend for PRISMA Review Tool.
 
 Wraps the prisma_review module as a REST API.
-Run with: uvicorn api.main:app --reload --port 8000
+Run with: uvicorn api.main:app --reload --port 8000 --timeout-graceful-shutdown 3
+(the timeout keeps an open browser tab's /api/events stream from delaying
+Ctrl+C and --reload by up to a minute).
 """
 
 from __future__ import annotations
 
+import os
 import re
-import shutil
 import sys
-from pathlib import Path
 from contextlib import asynccontextmanager
-
-import yaml
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from contextvars import ContextVar
+from pathlib import Path
 
 # Ensure prisma_review is importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from api.deps import init_config, get_projects_dir
-from api.routes import papers, pipeline, reports, config_routes, projects
+from prisma_review.deps import API_MODULES, exit_if_missing  # noqa: E402
 
+exit_if_missing(API_MODULES)  # an environment from an older version: say how to update it
 
-def _slugify(text: str) -> str:
-    """Convert text to a URL-friendly slug."""
-    slug = text.lower().strip()
-    slug = re.sub(r"[^\w\s-]", "", slug)
-    slug = re.sub(r"[\s_]+", "-", slug)
-    slug = re.sub(r"-+", "-", slug).strip("-")
-    return slug or "default-project"
+from fastapi import FastAPI  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from starlette.datastructures import Headers  # noqa: E402
+from starlette.responses import PlainTextResponse  # noqa: E402
 
-
-def _auto_migrate(root: Path, projects_dir: Path) -> Path:
-    """Migrate existing root config.yaml + prisma_output/ into projects/.
-
-    Returns the config path of the migrated project.
-    """
-    root_config = root / "config.yaml"
-    with open(root_config, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
-
-    project_name = cfg.get("project", {}).get("name", "default-project")
-    slug = _slugify(project_name)
-
-    project_dir = projects_dir / slug
-    project_dir.mkdir(parents=True, exist_ok=True)
-
-    # Copy config.yaml
-    dest_config = project_dir / "config.yaml"
-    shutil.copy2(root_config, dest_config)
-
-    # Update output_dir in copied config to relative path
-    with open(dest_config, "r", encoding="utf-8") as f:
-        new_cfg = yaml.safe_load(f)
-    if "project" in new_cfg:
-        new_cfg["project"]["output_dir"] = "./prisma_output"
-    with open(dest_config, "w", encoding="utf-8") as f:
-        yaml.safe_dump(new_cfg, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-    # Copy prisma_output/ if it exists
-    root_output = root / "prisma_output"
-    if root_output.is_dir():
-        dest_output = project_dir / "prisma_output"
-        if not dest_output.exists():
-            shutil.copytree(root_output, dest_output)
-
-    # Write active project marker
-    (projects_dir / ".active_project").write_text(slug, encoding="utf-8")
-
-    return dest_config
+from prisma_review import __version__, workspace  # noqa: E402
+from api.deps import init_config
+from api.routes import papers, pipeline, reports, config_routes, projects, events, mcp_info
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize config on startup, auto-migrating if needed."""
-    root = Path(__file__).parent.parent
-    projects_dir = get_projects_dir()
-    active_file = projects_dir / ".active_project"
-
-    if active_file.exists():
-        # Load the active project's config
-        name = active_file.read_text(encoding="utf-8").strip()
-        config_path = projects_dir / name / "config.yaml"
-        if config_path.exists():
-            init_config(config_path)
-        else:
-            init_config()
-    elif (root / "config.yaml").exists():
-        # Auto-migrate existing root config into projects/
-        projects_dir.mkdir(parents=True, exist_ok=True)
-        config_path = _auto_migrate(root, projects_dir)
-        init_config(config_path)
-    else:
+    """Load the active config on startup, first moving a root-only install into projects/."""
+    try:
+        if workspace.pinned_config_path() is None:
+            workspace.migrate_root_to_projects()
         init_config()
+    except Exception as exc:
+        # Keep serving: config-dependent endpoints answer 409 with the reason,
+        # and the Projects page can still switch to or create a project.
+        print(f"Warning: no usable config at startup: {exc}", file=sys.stderr)
     yield
 
 
 app = FastAPI(
     title="PRISMA Review Tool API",
     description="REST API for PRISMA 2020 systematic literature reviews",
-    version="1.5.1",
+    version=__version__,
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+# ── Origins allowed to call the API from a browser ─────────────────────
+# The API has no authentication and reads/writes local review files, so only
+# the local web app may call it from a browser: the Next.js dev default
+# (port 3000), the port start.py picks (the first free port in
+# [backend + 1000, backend + 2000)), the API's own pages (/docs), plus any
+# origins listed in PRISMA_CORS_ORIGINS (comma-separated).
+
+DEFAULT_WEB_PORT = 3000
+_LOCAL_ORIGIN_RE = re.compile(r"http://(?:localhost|127\.0\.0\.1|\[::1\]):(\d+)")
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+_server_port: ContextVar[int | None] = ContextVar("_server_port", default=None)
+
+
+def _configured_origins() -> set[str]:
+    raw = os.environ.get("PRISMA_CORS_ORIGINS", "")
+    return {o.strip().rstrip("/") for o in raw.split(",") if o.strip()}
+
+
+def origin_allowed(origin: str, server_port: int | None) -> bool:
+    """Whether a browser page at ``origin`` may call this API (served on ``server_port``)."""
+    origin = origin.rstrip("/")
+    if origin in _configured_origins():
+        return True
+    match = _LOCAL_ORIGIN_RE.fullmatch(origin)
+    if not match:
+        return False
+    port = int(match.group(1))
+    if port == DEFAULT_WEB_PORT:
+        return True
+    return server_port is not None and (
+        port == server_port or server_port + 1000 <= port < server_port + 2000
+    )
+
+
+class LocalOriginMiddleware(CORSMiddleware):
+    """CORS for the local web app only, and no state changes from other origins.
+
+    CORS only stops a foreign page from reading responses; a cross-site form
+    post or a no-cors fetch still reaches the endpoint. So a request that can
+    change state (anything but GET/HEAD/OPTIONS) carrying a foreign Origin is
+    refused with 403. Requests without an Origin (curl, scripts) are unaffected.
+    """
+
+    def __init__(self, app) -> None:
+        super().__init__(app, allow_origins=(), allow_methods=["*"], allow_headers=["*"])
+
+    def is_allowed_origin(self, origin: str) -> bool:
+        return origin_allowed(origin, _server_port.get())
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await super().__call__(scope, receive, send)
+            return
+        server = scope.get("server")
+        token = _server_port.set(server[1] if server else None)
+        try:
+            origin = Headers(scope=scope).get("origin")
+            if origin is not None and scope["method"] not in _SAFE_METHODS \
+                    and not self.is_allowed_origin(origin):
+                response = PlainTextResponse("Origin not allowed", status_code=403)
+                await response(scope, receive, send)
+                return
+            await super().__call__(scope, receive, send)
+        finally:
+            _server_port.reset(token)
+
+
+# ── Host names the API answers to ──────────────────────────────────────
+# A web page on another site can make the browser resolve its own host name
+# to 127.0.0.1 (DNS rebinding) and then read GET responses as same-origin.
+# The Host header still carries that foreign name, so only local names are
+# accepted, plus any listed in PRISMA_ALLOWED_HOSTS (comma-separated host
+# names without ports; "*" accepts any).
+
+LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
+_HOST_RE = re.compile(r"(\[[0-9A-Fa-f:.]+\]|[^:\[\]/\s]+)(?::\d{1,5})?")
+
+
+def _configured_hosts() -> set[str]:
+    raw = os.environ.get("PRISMA_ALLOWED_HOSTS", "")
+    return {h.strip().lower() for h in raw.split(",") if h.strip()}
+
+
+def host_allowed(host_header: str | None) -> bool:
+    """Whether a request with this Host header may reach the API."""
+    extra = _configured_hosts()
+    if "*" in extra:
+        return True
+    match = _HOST_RE.fullmatch((host_header or "").strip())
+    if not match:
+        return False
+    host = match.group(1).lower().rstrip(".")
+    return host in LOCAL_HOSTS or host in extra
+
+
+class LocalHostMiddleware:
+    """Answer 400 to any request whose Host header is not a local (or listed) name."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] in ("http", "websocket")                 and not host_allowed(Headers(scope=scope).get("host")):
+            response = PlainTextResponse(
+                "Invalid host header. The API answers on localhost only; list other host "
+                "names in PRISMA_ALLOWED_HOSTS.", status_code=400)
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(LocalOriginMiddleware)
+app.add_middleware(LocalHostMiddleware)  # outermost: checked before anything else
 
 app.include_router(reports.router, prefix="/api")
 app.include_router(papers.router, prefix="/api")
 app.include_router(pipeline.router, prefix="/api")
 app.include_router(config_routes.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
+app.include_router(events.router, prefix="/api")
+app.include_router(mcp_info.router, prefix="/api")
 
 
 @app.get("/api/health")

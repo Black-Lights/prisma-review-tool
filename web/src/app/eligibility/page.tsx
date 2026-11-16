@@ -74,6 +74,12 @@ function EligibilityContent() {
         papers
       </p>
 
+      {mutation.error && (
+        <div role="alert" className="glass p-3 border-l-4 border-l-accent-red text-sm text-accent-red">
+          Could not save the decision: {mutation.error.message}
+        </div>
+      )}
+
       {/* Progress bar */}
       {total > 0 && (
         <div className="space-y-2">

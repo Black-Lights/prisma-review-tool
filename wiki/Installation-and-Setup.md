@@ -87,7 +87,7 @@ python -m prisma_review status
 
 # For web app (two terminals)
 pip install uvicorn fastapi python-multipart
-uvicorn api.main:app --port 8000
+uvicorn api.main:app --port 8000 --timeout-graceful-shutdown 3
 
 # In a second terminal
 cd web
@@ -100,8 +100,8 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 | Package | Purpose |
 |---------|---------|
 | `arxiv` | arXiv API search |
-| `pyalex` | OpenAlex API search |
-| `requests` | HTTP requests (Semantic Scholar, Scopus) |
+| `requests` | HTTP requests (OpenAlex, Crossref, Semantic Scholar, Scopus) |
+| `filelock` | Safe concurrent writes (web app and MCP server share files) |
 | `pandas` | Data processing and CSV export |
 | `pyyaml` | YAML config parsing |
 | `rapidfuzz` | Fuzzy string matching for deduplication |

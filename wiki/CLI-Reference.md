@@ -170,13 +170,16 @@ See [Session System](../docs/SESSION_SYSTEM.md) for architecture details.
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--config PATH` | Path to config.yaml | `./config.yaml` |
+| `--config PATH` | Path to config.yaml | The review the web app and MCP server use: `PRISMA_CONFIG`, else the active project, else `./config.yaml` |
 | `--force` | Re-run step even if output exists | Off |
 
 **Examples:**
 ```bash
 # Use a different config file
 python -m prisma_review search --config my_other_config.yaml
+
+# Work on one project, whichever is active in the web app
+python -m prisma_review status --config projects/my-review/config.yaml
 
 # Re-run search even if results exist
 python -m prisma_review search --force

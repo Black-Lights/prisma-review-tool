@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-PRISMA Review Tool — One-command launcher.
+PRISMA Review Tool: one-command launcher.
 
 Usage:
     python start.py              # Install (first run) + start app
@@ -8,11 +8,13 @@ Usage:
     python start.py --port 8000  # Specify backend port (frontend = port + 1000)
     python start.py --no-browser # Don't open browser automatically
     python start.py --cli        # Skip web app, just activate venv for CLI usage
+    python start.py --host 0.0.0.0  # Expose both servers on the network (no authentication!)
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import platform
 import shutil
@@ -87,21 +89,47 @@ def ensure_python_venv() -> bool:
     return True
 
 
+REQUIREMENT_FILES = (ROOT / "requirements.txt", ROOT / "api" / "requirements.txt")
+
+
+def requirements_fingerprint() -> str:
+    """Hash of the requirement files: it changes when an update adds or raises a dependency."""
+    digest = hashlib.sha256()
+    for path in REQUIREMENT_FILES:
+        digest.update(path.name.encode())
+        try:
+            digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
+        except OSError:
+            pass
+    return digest.hexdigest()
+
+
+def deps_up_to_date(marker: Path) -> bool:
+    """True if the venv was installed from the current requirement files."""
+    try:
+        return marker.read_text(encoding="utf-8").strip() == requirements_fingerprint()
+    except OSError:
+        return False
+
+
 def install_python_deps(force: bool = False) -> None:
-    """Install Python requirements into the venv."""
+    """Install Python requirements into the venv (again whenever they changed)."""
     marker = VENV_DIR / ".deps_installed"
-    if marker.exists() and not force:
+    if not force and deps_up_to_date(marker):
         log("Python dependencies already installed (use --install to force)", "ok")
         return
+    if marker.exists() and not force:
+        log("The requirements changed since the last install: updating Python dependencies", "info")
 
     log("Installing Python dependencies...", "info")
-    reqs = ROOT / "requirements.txt"
-    # Also need uvicorn + fastapi for the API server
-    ret = run([venv_pip(), "install", "-r", str(reqs), "uvicorn[standard]", "fastapi", "python-multipart", "-q"])
+    args = [venv_pip(), "install", "-q"]
+    for reqs in REQUIREMENT_FILES:
+        args += ["-r", str(reqs)]
+    ret = run(args)
     if ret != 0:
         log("Failed to install Python dependencies", "err")
         sys.exit(1)
-    marker.write_text("ok")
+    marker.write_text(requirements_fingerprint(), encoding="utf-8")
     log("Python dependencies installed", "ok")
 
 
@@ -113,34 +141,83 @@ def ensure_node() -> bool:
     return True
 
 
+def lockfile_fingerprint() -> str:
+    """Hash of web/package-lock.json: it changes when an update bumps a web dependency."""
+    try:
+        data = (WEB_DIR / "package-lock.json").read_bytes()
+    except OSError:
+        return ""
+    return hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest()
+
+
 def install_node_deps(force: bool = False) -> None:
-    """Install Node.js dependencies for the web frontend."""
+    """Install the web frontend's packages exactly as locked (again whenever the lockfile changed)."""
     node_modules = WEB_DIR / "node_modules"
-    if node_modules.exists() and not force:
+    marker = node_modules / ".prisma-lock-hash"
+    try:
+        current = marker.read_text(encoding="utf-8").strip() == lockfile_fingerprint()
+    except OSError:
+        current = False
+    if node_modules.exists() and current and not force:
         log("Node dependencies already installed (use --install to force)", "ok")
         return
+    if node_modules.exists() and not force:
+        log("The web lockfile changed since the last install: updating Node dependencies", "info")
 
     log("Installing Node.js dependencies...", "info")
     npm = "npm.cmd" if IS_WIN else "npm"
-    ret = run([npm, "install"], cwd=WEB_DIR)
+    ret = run([npm, "ci"], cwd=WEB_DIR)
     if ret != 0:
         log("Failed to install Node dependencies", "err")
         sys.exit(1)
+    marker.write_text(lockfile_fingerprint(), encoding="utf-8")
     log("Node dependencies installed", "ok")
 
 
 def ensure_config() -> None:
-    """Copy config.template.yaml to config.yaml if it doesn't exist."""
+    """Copy config.template.yaml to config.yaml on a fresh install (no config, no project)."""
     config = ROOT / "config.yaml"
     template = ROOT / "config.template.yaml"
-    if not config.exists() and template.exists():
+    projects = ROOT / "projects"
+    has_projects = projects.is_dir() and any((p / "config.yaml").is_file() for p in projects.iterdir())
+    if not config.exists() and not has_projects and template.exists():
         shutil.copy2(template, config)
-        log("Created config.yaml from template — edit it with your search queries", "warn")
+        log("Created config.yaml from the template. The web app turns it into your first project: "
+            "fill it in on the Settings page (CLI only: edit config.yaml)", "warn")
 
 
 # ── Running ──────────────────────────────────────────────────────────────────
 
-def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None:
+# Seconds uvicorn waits for open connections when asked to stop. An open
+# browser tab holds a live-update stream (/api/events) for up to about a
+# minute; without a bound, Ctrl+C and --reload wait for it.
+GRACEFUL_SHUTDOWN_SECONDS = 3
+
+# Both servers listen on the loopback interface only: the API has no
+# authentication and reads and writes the review files. --host changes it.
+DEFAULT_HOST = "127.0.0.1"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def backend_command(port: int, host: str = DEFAULT_HOST) -> list[str]:
+    """The command that starts the API server (uvicorn) on host:port."""
+    return [
+        venv_python(), "-m", "uvicorn",
+        "api.main:app",
+        "--host", host,
+        "--port", str(port),
+        "--timeout-graceful-shutdown", str(GRACEFUL_SHUTDOWN_SECONDS),
+    ]
+
+
+def frontend_command(port: int, host: str = DEFAULT_HOST) -> list[str]:
+    """The command that starts the web app (next dev) on host:port."""
+    npm = "npm.cmd" if IS_WIN else "npm"
+    return [npm, "run", "dev", "--", "--hostname", host, "--port", str(port)]
+
+
+def start_app(backend_port: int, frontend_port: int, open_browser: bool,
+              host: str = DEFAULT_HOST) -> None:
     """Start FastAPI backend + Next.js frontend, handle cleanup on exit."""
     processes: list[subprocess.Popen] = []
 
@@ -168,13 +245,12 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
         signal.signal(signal.SIGBREAK, cleanup)
 
     # Start backend (uvicorn)
+    if host not in LOOPBACK_HOSTS:
+        log(f"Listening on {host}: anyone who can reach this machine can read and change your "
+            f"reviews (the API has no login). Also set PRISMA_ALLOWED_HOSTS and "
+            f"PRISMA_CORS_ORIGINS to the names others use.", "warn")
     log(f"Starting API server on port {backend_port}...", "info")
-    backend_cmd = [
-        venv_python(), "-m", "uvicorn",
-        "api.main:app",
-        "--host", "127.0.0.1",
-        "--port", str(backend_port),
-    ]
+    backend_cmd = backend_command(backend_port, host)
     kwargs = {}
     if not IS_WIN:
         kwargs["preexec_fn"] = os.setsid
@@ -186,12 +262,11 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
 
     # Start frontend (next dev)
     log(f"Starting web app on port {frontend_port}...", "info")
-    npm = "npm.cmd" if IS_WIN else "npm"
     frontend_env = {
         **os.environ,
         "NEXT_PUBLIC_API_URL": f"http://localhost:{backend_port}",
     }
-    frontend_cmd = [npm, "run", "dev", "--", "--port", str(frontend_port)]
+    frontend_cmd = frontend_command(frontend_port, host)
     frontend_proc = subprocess.Popen(frontend_cmd, cwd=WEB_DIR, env=frontend_env, **kwargs)
     processes.append(frontend_proc)
 
@@ -238,7 +313,7 @@ def start_app(backend_port: int, frontend_port: int, open_browser: bool) -> None
 def cli_mode() -> None:
     """Print activation instructions for CLI usage."""
     print()
-    print(f"\033[92m  PRISMA Review Tool — CLI Mode\033[0m")
+    print(f"\033[92m  PRISMA Review Tool: CLI Mode\033[0m")
     print()
     if IS_WIN:
         activate = f"{VENV_DIR}\\Scripts\\activate"
@@ -263,7 +338,7 @@ def cli_mode() -> None:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="PRISMA Review Tool — install & launch",
+        description="PRISMA Review Tool: install and launch",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -276,7 +351,10 @@ Examples:
     parser.add_argument("--install", action="store_true", help="Force reinstall all dependencies")
     parser.add_argument("--port", type=int, default=0, help="Backend port (0 = auto-detect, default 8000)")
     parser.add_argument("--no-browser", action="store_true", help="Don't open browser automatically")
-    parser.add_argument("--cli", action="store_true", help="CLI mode — just set up venv, don't start web app")
+    parser.add_argument("--cli", action="store_true", help="CLI mode: just set up venv, don't start web app")
+    parser.add_argument("--host", default=DEFAULT_HOST,
+                        help="Interface both servers listen on (default 127.0.0.1, this computer "
+                             "only). 0.0.0.0 exposes them on your network without any login.")
     args = parser.parse_args()
 
     print()
@@ -311,7 +389,7 @@ Examples:
     frontend_port = find_free_port(backend_port + 1000, backend_port + 2000)
 
     # 5. Launch
-    start_app(backend_port, frontend_port, open_browser=not args.no_browser)
+    start_app(backend_port, frontend_port, open_browser=not args.no_browser, host=args.host)
 
 
 if __name__ == "__main__":

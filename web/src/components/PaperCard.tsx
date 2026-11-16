@@ -6,9 +6,10 @@ import Link from "next/link";
 import type { PaperSummary } from "@/lib/api";
 
 const sourceBadgeColors: Record<string, string> = {
+  arxiv: "bg-accent-amber/15 text-accent-amber",
+  crossref: "bg-source-crossref/15 text-source-crossref",
   openalex: "bg-primary-dim text-primary",
   scopus: "bg-accent-green/15 text-accent-green",
-  arxiv: "bg-accent-amber/15 text-accent-amber",
   semantic_scholar: "bg-accent-purple/15 text-accent-purple",
 };
 

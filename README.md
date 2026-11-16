@@ -1,6 +1,6 @@
 # PRISMA Review Tool
 
-[![Version: 1.5.1](https://img.shields.io/badge/version-1.5.1-blue.svg)](CHANGELOG.md)
+[![Version: 1.6.0](https://img.shields.io/badge/version-1.6.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-green.svg)](https://www.python.org)
 
@@ -8,7 +8,7 @@ Automated systematic literature review following the [PRISMA 2020](https://www.p
 
 ## Features
 
-- **Multi-database search**: arXiv, OpenAlex, Semantic Scholar (free, no API keys needed). Optional: Scopus.
+- **Multi-database search**: OpenAlex, arXiv, Semantic Scholar and Crossref (free; a free OpenAlex key is recommended). Optional: Scopus. Each search is logged as executed (`01_search/search_log.json`), and a source that stops early is reported, not hidden.
 - **Automatic deduplication**: DOI matching + fuzzy title matching
 - **Two-pass screening**:
   - **Pass 1**: Rule-based keyword screening (automated, re-screenable with adjustable threshold)
@@ -45,13 +45,32 @@ python start.py --install     # Force reinstall all dependencies
 python start.py --port 9000   # Custom backend port (frontend = port + 1000)
 python start.py --no-browser  # Don't auto-open browser
 python start.py --cli         # CLI mode only (no web app)
+python start.py --host 0.0.0.0  # Listen on your network (default: this computer only, 127.0.0.1)
 ```
 
 > **Requirements:** Python 3.10+ and Node.js 18+ must be installed.
 
+### Updating
+
+```bash
+git pull
+python start.py
+```
+
+`start.py` notices when `requirements.txt`, `api/requirements.txt` or `web/package-lock.json` changed and reinstalls the packages before starting. If you only use the MCP server or the CLI, update the environment yourself after a pull:
+
+```bash
+.venv/Scripts/python -m pip install -r requirements.txt -r api/requirements.txt   # Windows
+.venv/bin/python -m pip install -r requirements.txt -r api/requirements.txt       # Mac/Linux
+```
+
+An out-of-date environment is reported with this command instead of a bare `ModuleNotFoundError` (1.6 added `filelock`).
+
 ### Configure
 
-Edit `config.yaml` with your search queries, date range, and screening keywords — or use the **Settings** page in the web app. See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
+Use the **Settings** page in the web app to set your search queries, date range and screening keywords. Each review is a project with its own `projects/<name>/config.yaml`, which you can also edit by hand; the web app, the MCP server and the CLI all work on the active project. A root `config.yaml` is used only by an install that has no projects (CLI-only use). See [docs/CONFIG_GUIDE.md](docs/CONFIG_GUIDE.md) for details.
+
+Upgrading from 1.5 and you ran your review from the root `config.yaml` with the MCP server or the CLI? Read [Upgrading from 1.5](docs/MCP_SETUP.md#upgrading-from-15) first: 1.6 follows the active project instead.
 
 ### CLI Usage (Without Web App)
 
@@ -81,6 +100,8 @@ python -m prisma_review export        # Export .bib + .csv
 python -m prisma_review status
 ```
 
+The CLI works on the same review as the web app and the MCP server (`PRISMA_CONFIG`, else the active project, else the root `config.yaml`), and prints which config it uses. `--config path/to/config.yaml` picks another one.
+
 ### (Optional) AI Screening with Any MCP-Compatible Agent
 
 Set up the MCP server to let AI agents (Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Windsurf, etc.) screen your papers. See [docs/MCP_SETUP.md](docs/MCP_SETUP.md).
@@ -103,7 +124,7 @@ Broad search queries in emerging fields often return hundreds of papers. A singl
 
 ```
 Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
-━━━━━━━━━━━━━━━━━━━━━          ━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━          ━━━━━━━━━━━━━━━━━━━━━
 1,600 records found             570 first-pass included
   → 57 duplicates removed         → AI reads each abstract
   → 973 excluded by rules         → Applies strict criteria
@@ -128,20 +149,32 @@ Pass 1 (Keyword Rules)          Pass 2 (AI Eligibility)
 | `run-all` | Run the full pipeline end-to-end |
 
 **Options:**
-- `--config PATH` — Path to config.yaml (default: `./config.yaml`)
+- `--config PATH`: path to a config.yaml (default: the review the web app and the MCP server use, see above)
 - `--force` — Re-run a step even if output already exists
 
 ## MCP Tools Reference
 
+The server has 21 tools. Every tool returns JSON and acts on one review: the config pinned by `PRISMA_CONFIG`, otherwise the active project. Details in [docs/MCP_SETUP.md](docs/MCP_SETUP.md).
+
+### Configuration and Projects
+| Tool | Description |
+|------|-------------|
+| `get_review_config` | The project and config in use, readiness, and per-source query and filter warnings (call it first) |
+| `set_review_config` | Change sources, dates, queries, keywords and filters (validated; nothing written if a value is invalid) |
+| `list_projects` | Projects, the active one, and the one in use |
+| `switch_project` | Make another project active (same as the web app's switcher) |
+| `create_project` | Create a project from the template |
+
 ### First-Pass Screening
 | Tool | Description |
 |------|-------------|
-| `get_screening_stats` | Current pipeline statistics |
-| `get_papers_to_screen` | Batch of "maybe" papers for AI review |
+| `get_screening_stats` | Counts per stage and the PRISMA 2020 flow |
+| `get_papers_to_screen` | Batch of "maybe" (or not yet screened) papers for AI review |
 | `get_paper_details` | Full details of a specific paper |
 | `screen_paper` | Save one screening decision |
 | `batch_screen_papers` | Save multiple screening decisions |
 | `search_in_papers` | Keyword search across collected papers |
+| `rescreen` | Re-apply the keyword rules with another threshold (keeps AI and manual decisions) |
 
 ### Second-Pass Eligibility
 | Tool | Description |
@@ -244,7 +277,7 @@ Only [2% of systematic review tools](https://doi.org/10.1016/j.jclinepi.2021.10.
 | [Full Workflow Tutorial](wiki/Full-Workflow-Tutorial.md) | End-to-end walkthrough |
 | [MCP & AI Screening](wiki/MCP-and-AI-Screening.md) | Setup with any MCP agent |
 | [CLI Reference](wiki/CLI-Reference.md) | All commands and options |
-| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference.md) | All 15 MCP tools with params and responses |
+| [MCP Tools API Reference](wiki/MCP-Tools-API-Reference.md) | All 21 MCP tools with params and responses |
 | [PRISMA 2020 Compliance](wiki/PRISMA-2020-Compliance.md) | Checklist mapping, flow diagram alignment |
 | [Writing Your Methodology](wiki/Writing-Your-Methodology.md) | Template for thesis/paper methods section |
 | [Troubleshooting & FAQ](wiki/Troubleshooting-and-FAQ.md) | Common issues and solutions |
@@ -257,7 +290,8 @@ Also available in `docs/`:
 ## Roadmap
 
 - **v1.0**: CLI + MCP server with two-pass screening
-- **v1.5** (current): Re-screen from Screening page, PRISMA 2020 compliant diagram, workflow-ordered tutorial (24 steps)
+- **v1.6** (current): Merges the community fork (Crossref, project and pipeline MCP tools, live updates, source-side filters, required-keyword gate), search log for PRISMA item 7, per-query search status, correct PRISMA 2020 counts, safe concurrent writes, local-only API
+- **v1.5**: Re-screen from Screening page, PRISMA 2020 compliant diagram, workflow-ordered tutorial (24 steps)
 - **v1.4**: Elsevier-style export with field picker, per-project filter persistence
 - **v1.3**: One-command launcher, web dashboard, background pipeline, multi-project management, 15 MCP tools
 - **v2.0** (planned): Desktop app (Tauri), drag-and-drop config builder, multi-user support
@@ -280,14 +314,22 @@ If you use this tool in your research, please cite:
 
 - Python 3.10+
 - Node.js 18+ (for the web app; not needed for CLI-only usage)
-- No API keys needed for basic usage (OpenAlex is free and recommended)
+- A free OpenAlex API key is recommended ([openalex.org/settings/api](https://openalex.org/settings/api)): it raises the daily request budget 10 times. The tool works without one.
 - Optional: Scopus API key for broader coverage (get from [dev.elsevier.com](https://dev.elsevier.com), requires institutional access)
-- Optional: arXiv and Semantic Scholar (free but have aggressive rate limits)
+- Optional: arXiv and Semantic Scholar (free but rate-limited; requests are retried and a source that stops early is reported)
+- Optional: Crossref (free, but relevance-ranked rather than Boolean, so it is off by default)
 - Optional: Claude Code subscription for AI-assisted screening via MCP
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Acknowledgements
+
+Version 1.6 is built on a community fork:
+
+- [walterdemacedorodrigues](https://github.com/walterdemacedorodrigues) added Crossref as a search source and moved the web app to a current Next.js ([#3](https://github.com/Black-Lights/prisma-review-tool/pull/3)).
+- agoshigagoroba added the MCP tools for configuring reviews, managing projects and running the pipeline from an agent, live updates in the web app, the required-keywords gate, source-side search filters with the screening report panel, search provenance, and the fix that keeps the MCP channel clean of progress output.
 
 ## License
 

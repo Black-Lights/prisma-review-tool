@@ -1,17 +1,29 @@
+# Floors are the first releases without known advisories (OSV, November 2026).
+
 # Database search
 arxiv>=2.1.0
-requests>=2.31.0
-pyalex>=0.15
+requests>=2.33.0
+# CA bundle used by requests: 2026.10.18 drops the compromised emSign roots
+certifi>=2026.10.18
 
 # Data processing
 pandas>=2.0.0
 pyyaml>=6.0
+numpy>=1.24
 
 # Deduplication
 rapidfuzz>=3.0.0
 
 # Diagram
 matplotlib>=3.7.0
+# pillow 13 and filelock 4.2.1 need Python 3.11+. Python 3.10 (end of life since
+# October 2026) gets the newest releases that still install there.
+pillow>=13.0.0; python_version >= "3.11"
+pillow>=10.0; python_version < "3.11"
 
-# MCP Server
-mcp>=1.0.0
+# Safe concurrent writes (web API and MCP server share the same files)
+filelock>=4.2.1; python_version >= "3.11"
+filelock>=3.12; python_version < "3.11"
+
+# MCP Server (mcp 2.x removed mcp.server.fastmcp, which the server is built on)
+mcp>=1.30,<2

@@ -46,7 +46,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "api-keys",
     target: '[data-tutorial="api-keys"]',
     title: "API Keys",
-    description: "Optional but recommended. Add your Scopus API key for broader search coverage and Elsevier PDF downloads. Hover the (i) buttons for step-by-step setup instructions.",
+    description: "Add a free OpenAlex API key: without one, large OpenAlex searches can be cut short. A Scopus key is optional and adds broader coverage and Elsevier PDF downloads. Hover the (i) buttons for step-by-step setup instructions.",
     page: "/settings",
   },
   // ── 3. PROJECTS ──

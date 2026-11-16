@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { X, Download, FileText, FileSpreadsheet } from "lucide-react";
-
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { API_BASE as API } from "@/lib/api";
 
 /* ─── Field definitions ─────────────────────────────────────────────────── */
 

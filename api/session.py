@@ -1,22 +1,28 @@
-"""Pipeline session manager — runs pipeline steps in a background thread."""
+"""Pipeline session manager: runs pipeline steps in a background thread.
+
+The web API and the MCP server each have one manager. A run is also recorded
+on disk (the ``pipeline`` block of review_state.json, see prisma_review.pipeline)
+with its owner process and a heartbeat, so either process can show, refuse to
+duplicate, or stop a run the other one started, and a run whose process died
+is reported as interrupted instead of "running" forever.
+"""
 
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 import traceback
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
 
+from prisma_review import pipeline, workspace
 from prisma_review.config import Config
-from prisma_review.models import load_papers, save_papers
-from prisma_review.search.runner import run_all_searches
-from prisma_review.dedup import deduplicate, save_dedup_log
-from prisma_review.screen import screen_by_rules, get_by_decision
-from prisma_review.diagram import load_state, save_state
-
+from prisma_review.pipeline import RunActiveError
+from prisma_review.screen import rescreen
+from prisma_review.storage import update_state
 
 PipelineStatus = Literal["idle", "running", "completed", "failed", "cancelled"]
 
@@ -26,21 +32,56 @@ STEP_LABELS = {
     "screen": "Keyword screening",
 }
 
+# Keys of a progress snapshot (the in-memory run, or the block on disk).
+_PROGRESS_KEYS = ("session_id", "status", "current_step", "progress_message", "started_at",
+                  "finished_at", "completed_steps", "warnings", "error", "result",
+                  "cancel_requested")
+
+log = logging.getLogger(__name__)
+
+
+def _idle_progress() -> dict:
+    return {"session_id": None, "status": "idle", "current_step": None, "progress_message": None,
+            "started_at": None, "finished_at": None, "completed_steps": [], "warnings": [],
+            "error": None, "result": None, "cancel_requested": False}
+
+
+def _progress_from_block(block: dict) -> dict:
+    progress = _idle_progress()
+    for key in _PROGRESS_KEYS:
+        if key in block:
+            progress[key] = block[key]
+    progress["completed_steps"] = list(progress["completed_steps"] or [])
+    progress["warnings"] = list(progress["warnings"] or [])
+    progress["cancel_requested"] = bool(progress["cancel_requested"])
+    return progress
+
+
+def _same_file(a: Path | None, b: Path | None) -> bool:
+    if a is None or b is None:
+        return a is b
+    return os.path.normcase(str(Path(a).resolve())) == os.path.normcase(str(Path(b).resolve()))
+
 
 class SessionManager:
-    """Manages a single background pipeline execution.
+    """Manages the pipeline runs this process starts.
 
-    Thread-safe: the ``_lock`` protects mutable progress fields while the
-    ``_file_lock`` (shared with the rest of the API) protects JSON writes.
+    ``_lock`` protects the in-memory progress fields; every file write goes
+    through ``storage.project_lock`` / ``update_state``, which also exclude
+    the other process.
     """
 
-    def __init__(self, file_lock: threading.Lock, state_file: Path | None = None) -> None:
+    def __init__(self, file_lock: object | None = None, state_file: Path | None = None) -> None:
+        # ``file_lock`` is accepted for compatibility and unused: the project
+        # lock in prisma_review.storage replaced the per-process locks.
         self._lock = threading.Lock()
-        self._file_lock = file_lock
-        self._state_file = state_file
+        self._start_lock = threading.Lock()
+        self._state_file = Path(state_file) if state_file is not None else None
         self._thread: threading.Thread | None = None
+        self._heartbeat_stop = threading.Event()
+        self.run_config: Config | None = None
 
-        # Progress state (read by the polling endpoint)
+        # Progress of the last run this process started (read by the polling endpoint)
         self.session_id: str | None = None
         self.status: PipelineStatus = "idle"
         self.current_step: str | None = None
@@ -52,11 +93,15 @@ class SessionManager:
         self.error: str | None = None
         self.result: dict | None = None
 
-        # Cancellation flag — checked between steps
+        # Cancellation flag: checked between steps and by the search runner
         self._cancel_requested = False
 
-        # Restore state from disk (e.g. after server restart)
-        self._restore_from_disk()
+        # A run left "running" by a process that died is recorded as interrupted.
+        if self._state_file is not None:
+            try:
+                pipeline.reconcile_stale_run(self._state_file)
+            except Exception:
+                log.warning("Failed to check the recorded pipeline run", exc_info=True)
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -64,10 +109,14 @@ class SessionManager:
 
     @property
     def is_running(self) -> bool:
+        """True while this process runs a pipeline (see ``pipeline.active_run`` for any process)."""
         return self.status == "running"
 
-    def get_progress(self) -> dict:
-        """Return a snapshot of the current progress — fast, no I/O."""
+    @property
+    def state_file(self) -> Path | None:
+        return self._state_file
+
+    def _snapshot(self) -> dict:
         with self._lock:
             return {
                 "session_id": self.session_id,
@@ -80,16 +129,58 @@ class SessionManager:
                 "warnings": list(self.warnings),
                 "error": self.error,
                 "result": self.result,
+                "cancel_requested": self._cancel_requested,
             }
 
-    def request_cancel(self) -> bool:
-        """Set the cancellation flag.  Returns False if nothing is running."""
+    def get_progress(self, state_file: Path | None = None) -> dict:
+        """Return a snapshot of the pipeline progress of a project (default: this manager's).
+
+        Reconciles this process's run with the ``pipeline`` block on disk, so
+        a run driven by the other process (web API or MCP server) is visible
+        here too. Memory wins for this process's own run (it has the result);
+        a recorded run whose owner died is reported as failed; another
+        project's progress never shows this process's run.
+        """
+        target = Path(state_file) if state_file is not None else self._state_file
+        ours = target is None or _same_file(target, self._state_file)
+        local = self._snapshot()
+        if ours and local["status"] == "running":
+            return local
+
+        disk = None
+        block = pipeline.read_run(target)
+        if block is not None:
+            if block.get("status") == "running" and not pipeline.run_is_live(block):
+                block = pipeline.reconcile_stale_run(target) or pipeline.interrupted(block)
+            disk = _progress_from_block(block)
+
+        if not ours:
+            return disk or _idle_progress()
+        if disk is None:
+            return local
+        if local["session_id"] and disk["session_id"] == local["session_id"]:
+            return local
+        if local["started_at"] is None or (disk["started_at"] or "") > local["started_at"]:
+            return disk
+        return local
+
+    def request_cancel(self, state_file: Path | None = None) -> bool:
+        """Ask the running pipeline of a project (default: this manager's) to stop.
+
+        Cancels this process's run directly; otherwise sets ``cancel_requested``
+        on disk for the process that owns the run. False if nothing is running.
+        """
+        target = Path(state_file) if state_file is not None else self._state_file
         with self._lock:
-            if self.status != "running":
-                return False
-            self._cancel_requested = True
-            self.progress_message = "Cancellation requested — stopping after current step..."
+            mine = self.status == "running" and (state_file is None
+                                                 or _same_file(target, self._state_file))
+            if mine:
+                self._cancel_requested = True
+                self.progress_message = pipeline.CANCEL_MESSAGE
+        if mine:
+            self._persist_to_disk()
             return True
+        return pipeline.request_cancel_on_disk(target)
 
     # ------------------------------------------------------------------
     # Start helpers
@@ -97,11 +188,11 @@ class SessionManager:
 
     def start_full_pipeline(self, config: Config) -> str:
         """Launch search -> dedup -> screen in a background thread."""
-        return self._start(["search", "dedup", "screen"], config)
+        return self._start(list(pipeline.STEPS), config)
 
     def start_step(self, step: str, config: Config) -> str:
         """Launch a single step in a background thread."""
-        if step not in ("search", "dedup", "screen"):
+        if step not in pipeline.STEPS:
             raise ValueError(f"Unknown step: {step}")
         return self._start([step], config)
 
@@ -110,88 +201,157 @@ class SessionManager:
     # ------------------------------------------------------------------
 
     def _start(self, steps: list[str], config: Config) -> str:
-        with self._lock:
-            if self.status == "running":
+        """Claim the project on disk and start the run.
+
+        Raises RuntimeError if this process is already running a pipeline and
+        RunActiveError if another process runs one on this project.
+        """
+        with self._start_lock:
+            if self.is_running:
                 raise RuntimeError("Pipeline is already running")
+            if "search" in steps:
+                # A search replaces the results under output_dir: refuse up front.
+                workspace.check_output_dir(config)
 
-            self.session_id = uuid.uuid4().hex[:12]
-            self.status = "running"
-            self.current_step = None
-            self.progress_message = "Initializing..."
-            self.started_at = datetime.now(timezone.utc).isoformat()
-            self.finished_at = None
-            self.completed_steps = []
-            self.warnings = []
-            self.error = None
-            self.result = None
-            self._cancel_requested = False
+            session_id = uuid.uuid4().hex[:12]
+            started_at = pipeline.now_iso()
+            block = {
+                "session_id": session_id, "status": "running", "current_step": None,
+                "progress_message": "Initializing...", "started_at": started_at,
+                "finished_at": None, "completed_steps": [], "warnings": [], "error": None,
+                "result": None, "cancel_requested": False, **pipeline.owner_fields(),
+            }
 
-        thread = threading.Thread(
-            target=self._run_pipeline,
-            args=(steps, config),
-            daemon=True,
-        )
-        thread.start()
-        self._thread = thread
-        return self.session_id
+            def claim(state: dict) -> None:
+                current = state.get("pipeline")
+                if pipeline.run_is_live(current):
+                    raise RunActiveError(pipeline.describe_run(current))
+                state["pipeline"] = block
+
+            update_state(config.state_file, claim)
+
+            with self._lock:
+                self.session_id = session_id
+                self.status = "running"
+                self.current_step = None
+                self.progress_message = "Initializing..."
+                self.started_at = started_at
+                self.finished_at = None
+                self.completed_steps = []
+                self.warnings = []
+                self.error = None
+                self.result = None
+                self._cancel_requested = False
+                self._state_file = Path(config.state_file)
+                self.run_config = config
+                self._heartbeat_stop = threading.Event()
+
+            threading.Thread(target=self._heartbeat, args=(self._heartbeat_stop,),
+                             daemon=True).start()
+            thread = threading.Thread(target=self._run_pipeline, args=(steps, config), daemon=True)
+            self._thread = thread
+            thread.start()
+            return session_id
 
     def _update(self, **fields: object) -> None:
         with self._lock:
             for k, v in fields.items():
                 setattr(self, k, v)
 
+    def _add_warnings(self, warnings: list[str]) -> None:
+        with self._lock:
+            self.warnings.extend(warnings)
+
     def _is_cancelled(self) -> bool:
         with self._lock:
             return self._cancel_requested
 
-    def _persist_to_disk(self, config: Config) -> None:
-        """Write current pipeline state to review_state.json."""
-        try:
-            with self._file_lock:
-                state = load_state(config.state_file)
-                state["pipeline"] = {
-                    "status": self.status,
-                    "current_step": self.current_step,
-                    "progress_message": self.progress_message,
-                    "started_at": self.started_at,
-                    "completed_steps": list(self.completed_steps),
-                    "warnings": list(self.warnings),
-                    "error": self.error,
-                }
-                save_state(state, config.state_file)
-        except Exception:
-            logging.getLogger(__name__).warning("Failed to persist pipeline state", exc_info=True)
+    def _disk_block(self) -> dict:
+        with self._lock:
+            return {
+                "session_id": self.session_id,
+                "status": self.status,
+                "current_step": self.current_step,
+                "progress_message": self.progress_message,
+                "started_at": self.started_at,
+                "finished_at": self.finished_at,
+                "completed_steps": list(self.completed_steps),
+                "warnings": list(self.warnings),
+                "error": self.error,
+                "result": self.result,
+                "cancel_requested": self._cancel_requested,
+                **pipeline.owner_fields(),
+            }
 
-    def _restore_from_disk(self) -> None:
-        """Restore pipeline state from disk on startup.
+    def _sync(self, block: dict | None = None) -> bool:
+        """Write this run's block (or only refresh the heartbeat) and pick up a cancel from disk.
 
-        If the persisted state says "running", the thread is gone (server
-        restarted), so we mark it as "failed".
+        Never overwrites a live run another process started on the project.
+        Returns False if the write failed.
         """
-        if self._state_file is None:
-            return
+        if self._state_file is None or self.session_id is None:
+            return False
+        session_id = self.session_id
+        seen = {"cancel": False, "superseded": False}
+
+        def apply(state: dict) -> None:
+            current = state.get("pipeline")
+            if isinstance(current, dict) and current.get("session_id") != session_id:
+                if pipeline.run_is_live(current):
+                    seen["superseded"] = True
+                    return
+            elif isinstance(current, dict):
+                seen["cancel"] = bool(current.get("cancel_requested"))
+                if block is None and current.get("status") == "running":  # heartbeat only
+                    current["heartbeat_at"] = pipeline.now_iso()
+                    return
+            # Write the whole block; this also restores it if another process
+            # recorded this run as interrupted while it was in fact still going.
+            new_block = block if block is not None else self._disk_block()
+            if seen["cancel"]:
+                new_block["cancel_requested"] = True
+            state["pipeline"] = new_block
+
         try:
-            state = load_state(self._state_file)
-            ps = state.get("pipeline")
-            if not ps or not isinstance(ps, dict):
-                return
-
-            self.status = ps.get("status", "idle")
-            self.current_step = ps.get("current_step")
-            self.progress_message = ps.get("progress_message")
-            self.started_at = ps.get("started_at")
-            self.completed_steps = ps.get("completed_steps", [])
-            self.warnings = ps.get("warnings", [])
-            self.error = ps.get("error")
-
-            # A "running" pipeline on disk means the server crashed mid-run
-            if self.status == "running":
-                self.status = "failed"
-                self.progress_message = "Pipeline was interrupted by server restart"
-                self.finished_at = datetime.now(timezone.utc).isoformat()
-                self.error = "Server restarted while pipeline was running"
+            update_state(self._state_file, apply)
         except Exception:
-            logging.getLogger(__name__).warning("Failed to restore pipeline state", exc_info=True)
+            log.warning("Failed to persist pipeline state", exc_info=True)
+            return False
+        if seen["cancel"] or seen["superseded"]:
+            with self._lock:
+                if not self._cancel_requested and self.status == "running":
+                    self._cancel_requested = True
+                    self.progress_message = (
+                        pipeline.CANCEL_MESSAGE if seen["cancel"] else
+                        "Another process started a pipeline on this project; stopping this one")
+        return True
+
+    def _persist_to_disk(self, config: Config | None = None) -> bool:
+        """Write the current progress to the ``pipeline`` block of review_state.json."""
+        return self._sync(self._disk_block())
+
+    def _heartbeat(self, stop: threading.Event) -> None:
+        while not stop.wait(pipeline.HEARTBEAT_SECONDS):
+            if self.status != "running":
+                return
+            self._sync()
+
+    def _check_disk_cancel(self) -> None:
+        block = pipeline.read_run(self._state_file)
+        if isinstance(block, dict) and block.get("session_id") == self.session_id \
+                and block.get("cancel_requested"):
+            with self._lock:
+                self._cancel_requested = True
+
+    def _finish(self, status: PipelineStatus, message: str, **fields: object) -> None:
+        self._update(status=status, progress_message=message,
+                     finished_at=pipeline.now_iso(), **fields)
+        self._heartbeat_stop.set()
+        # The final state must reach the disk, or other processes see a stale run.
+        for attempt in range(3):
+            if self._persist_to_disk():
+                return
+            time.sleep(0.2 * (attempt + 1))
 
     # ------------------------------------------------------------------
     # Pipeline execution (runs in background thread)
@@ -199,55 +359,36 @@ class SessionManager:
 
     def _run_pipeline(self, steps: list[str], config: Config) -> None:
         accumulated: dict = {}
-
-        # Clear stale output from previous runs so we get fresh results
-        if "search" in steps:
-            import shutil
-            for subdir in ["01_search", "02_dedup", "03_screen", "03b_eligibility", "04_export"]:
-                path = config.output_dir / subdir
-                if path.exists():
-                    shutil.rmtree(path)
-                path.mkdir(parents=True, exist_ok=True)
-
-        self._persist_to_disk(config)
         try:
             for step in steps:
+                self._check_disk_cancel()
                 if self._is_cancelled():
-                    self._update(
-                        status="cancelled",
-                        progress_message="Pipeline cancelled by user",
-                        finished_at=datetime.now(timezone.utc).isoformat(),
-                    )
-                    self._persist_to_disk(config)
+                    self._finish("cancelled", "Pipeline cancelled by user",
+                                 current_step=None, result=accumulated)
                     return
 
                 label = STEP_LABELS.get(step, step)
                 self._update(current_step=step, progress_message=f"{label}...")
-                self._persist_to_disk(config)
+                self._persist_to_disk()
 
                 result = self._execute_step(step, config)
                 accumulated[step] = result
+                if isinstance(result, dict) and result.get("status") == "cancelled":
+                    self._finish("cancelled", result.get("message") or "Pipeline cancelled by user",
+                                 current_step=None, result=accumulated)
+                    return
 
                 with self._lock:
                     self.completed_steps.append(step)
 
-            self._update(
-                status="completed",
-                current_step=None,
-                progress_message="Pipeline completed successfully",
-                finished_at=datetime.now(timezone.utc).isoformat(),
-                result=accumulated,
-            )
-            self._persist_to_disk(config)
+            self._finish("completed", "Pipeline completed successfully",
+                         current_step=None, result=accumulated)
 
         except Exception as exc:
-            self._update(
-                status="failed",
-                progress_message=f"Error in step '{self.current_step}': {exc}",
-                error=traceback.format_exc(),
-                finished_at=datetime.now(timezone.utc).isoformat(),
-            )
-            self._persist_to_disk(config)
+            self._finish("failed", f"Error in step '{self.current_step}': {exc}",
+                         error=traceback.format_exc())
+        finally:
+            self._heartbeat_stop.set()
 
     def _execute_step(self, step: str, config: Config) -> dict:
         """Execute a single pipeline step.  Returns its result dict."""
@@ -260,97 +401,44 @@ class SessionManager:
         else:
             raise ValueError(f"Unknown step: {step}")
 
-    # -- Individual step implementations (mirror the sync endpoints) ------
+    # -- Individual step implementations (shared with the CLI and sync endpoints) --
 
     def _run_search(self, config: Config) -> dict:
-        # Run network calls WITHOUT holding the file lock (can take minutes)
-        results = run_all_searches(config)
+        # Per-source query transparency: report operators each source drops
+        # (OR/NOT/wildcards/extra phrases) before the search runs.
+        self._add_warnings(pipeline.pre_search_warnings(config))
 
-        all_papers = []
-        source_counts: dict[str, int] = {}
-        for key, papers in results.items():
-            source_name = key.split("_")[0]
-            source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
-            all_papers.extend(papers)
+        # A new search replaces the project's later results, but only once it
+        # has finished: a cancelled or failed search keeps the previous ones.
+        outcome = pipeline.search_step(config, should_cancel=self._is_cancelled,
+                                       replace_downstream=True)
+        self._add_warnings(outcome["warnings"])
+        if outcome["status"] == "cancelled":
+            return {**outcome, "message": "Pipeline cancelled during search; "
+                                          "the previous results were kept"}
+        if outcome["status"] == "failed":
+            raise pipeline.StepError(outcome["error"])
 
-        # Detect sources that returned 0 results (likely rate-limited or errored)
-        for source in config.sources:
-            if source_counts.get(source, 0) == 0:
-                warning = f"{source}: returned 0 results (possible rate limiting or API error)"
-                with self._lock:
-                    self.warnings.append(warning)
-
-        # Only hold the lock for file writes
-        with self._file_lock:
-            save_papers(all_papers, config.search_dir / "all_records.json")
-
-            state = load_state(config.state_file)
-            state["search"] = {**source_counts, "total": len(all_papers)}
-            save_state(state, config.state_file)
-
-        msg = f"Search complete — {len(all_papers)} records found"
+        msg = f"Search complete: {outcome['total']} records found"
         if self.warnings:
             msg += f" ({len(self.warnings)} warning(s))"
         self._update(progress_message=msg)
-        return {"status": "ok", "total": len(all_papers), "sources": source_counts}
+        return {"status": "ok", "total": outcome["total"], "sources": outcome["sources"]}
 
     def _run_dedup(self, config: Config) -> dict:
-        papers = load_papers(config.search_dir / "all_records.json")
-        if not papers:
-            raise RuntimeError("No papers found. Run search first.")
-
-        # Run computation without lock, only lock for saves
-        unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold)
-
-        with self._file_lock:
-            save_papers(unique, config.dedup_dir / "deduplicated.json")
-            save_dedup_log(log, config.dedup_dir / "duplicates_log.csv")
-
-            state = load_state(config.state_file)
-            state["dedup"] = {"duplicates_removed": len(papers) - len(unique), "remaining": len(unique)}
-            save_state(state, config.state_file)
-
-        self._update(progress_message=f"Dedup complete — {len(unique)} unique records")
-        return {"status": "ok", "duplicates_removed": len(papers) - len(unique), "remaining": len(unique)}
+        result = pipeline.dedup_step(config)
+        self._update(progress_message=f"Dedup complete: {result['remaining']} unique records")
+        return result
 
     def _run_screen(self, config: Config) -> dict:
-        papers = load_papers(config.dedup_dir / "deduplicated.json")
-        if not papers:
-            raise RuntimeError("No papers found. Run dedup first.")
-
-        # Run computation without lock, only lock for saves
-        papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords, config.min_include_hits)
-        included = get_by_decision(papers, "include")
-        excluded = get_by_decision(papers, "exclude")
-        maybe = get_by_decision(papers, "maybe")
-
-        with self._file_lock:
-            save_papers(papers, config.screen_dir / "screen_results.json")
-            save_papers(included, config.screen_dir / "included.json")
-            save_papers(excluded, config.screen_dir / "excluded.json")
-            save_papers(maybe, config.screen_dir / "maybe.json")
-
-            # Clear stale eligibility data — included papers have changed
-            for elig_file in ["eligibility_results.json", "eligible_included.json", "eligible_excluded.json"]:
-                elig_path = config.eligibility_dir / elig_file
-                if elig_path.exists():
-                    save_papers([], elig_path)
-
-            # Clear stale download log — papers have changed
-            download_log = config.output_dir / "05_pdfs" / "_download_log.json"
-            if download_log.exists():
-                download_log.unlink()
-
-            state = load_state(config.state_file)
-            state["screen"] = {
-                "total_screened": len(papers),
-                "included": len(included),
-                "excluded": len(excluded),
-                "maybe": len(maybe),
-            }
-            # Reset eligibility state since included papers changed
-            state.pop("eligibility", None)
-            save_state(state, config.state_file)
-
-        self._update(progress_message=f"Screening complete — {len(included)} included")
-        return {"status": "ok", "included": len(included), "excluded": len(excluded), "maybe": len(maybe)}
+        # Keeps manual and AI decisions and reconciles the eligibility pass.
+        result = rescreen(config, check_running=False, persist_threshold=False)
+        self._update(progress_message=f"Screening complete: {result['included']} included")
+        if result["eligibility_set_aside"]:
+            self._add_warnings([
+                f"{result['eligibility_set_aside']} eligibility decision(s) are set aside because "
+                f"their papers are no longer included at screening. They are kept and count "
+                f"again if the papers are included again."])
+        return {key: result[key] for key in ("status", "included", "excluded", "maybe",
+                                             "excluded_no_required_keyword", "kept_manual",
+                                             "kept_ai", "eligibility_set_aside")}

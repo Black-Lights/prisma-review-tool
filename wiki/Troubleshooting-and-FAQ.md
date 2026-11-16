@@ -41,12 +41,12 @@ arXiv's API doesn't support full Boolean syntax. The tool simplifies your query,
 
 **OpenAlex returns too many irrelevant results**
 
-OpenAlex uses text search, not strict Boolean matching. The screening step will filter irrelevant papers. This is by design — it's better to cast a wide net and filter than to miss papers.
+OpenAlex runs your Boolean query on title, abstract and keywords, with stemming (`network` also matches `networks`). Tighten the query (more `AND` terms, quoted phrases), or let the keyword screening remove the rest. A query with wildcards switches OpenAlex to its unstemmed exact search, which matches differently; the warnings say so.
 
 **Search is very slow**
 
 - Semantic Scholar: Throttled to ~1 request/second. Be patient.
-- OpenAlex: Paginated at 50 results/page. Large result sets take time.
+- OpenAlex: Paginated at 100 results per page. Without an API key it cannot page past 10,000 results and shares a small daily budget; a free key (`api_keys.openalex_key`) lifts both.
 - arXiv: Generally fast, but can timeout during peak hours.
 
 ---

@@ -3,105 +3,142 @@
 from __future__ import annotations
 
 import argparse
-import json
+import os
 import sys
 from pathlib import Path
+from typing import Callable
 
+from . import pipeline, workspace
 from .config import Config
-from .models import Paper, save_papers, load_papers
-from .search.runner import run_all_searches
-from .dedup import deduplicate, save_dedup_log
-from .screen import screen_by_rules, get_by_decision
+from .models import load_papers
+from .pipeline import ClaimedRun, RunActiveError, StepError
+from .screen import rescreen
+from .stats import project_stats
+from .storage import atomic_write_json
 from .export import export_bibtex, export_csv
 from .download import download_papers
-from .diagram import generate_markdown_diagram, generate_png_diagram, save_state, load_state
+from .diagram import generate_markdown_diagram, generate_png_diagram, load_state
 
 
-def cmd_search(config: Config) -> None:
-    """Run search queries across all configured databases."""
+def _claimed(config: Config, label: str, run: ClaimedRun | None,
+             body: Callable[[ClaimedRun], bool]) -> bool:
+    """Run ``body`` inside ``run``, or inside a run claimed for this command.
+
+    A command that changes the results records its run on the project like
+    the web app and the MCP server do, so neither starts a pipeline over it,
+    and it refuses to start while one of theirs is running.
+    """
+    if run is not None:
+        return body(run)
+    try:
+        with pipeline.claimed_run(config, "cli") as claimed:
+            return body(claimed)
+    except RunActiveError as exc:
+        print(f"[{label}] {exc} Nothing was changed; try again when it has finished.")
+        return False
+
+
+def cmd_search(config: Config, run: ClaimedRun | None = None) -> bool:
+    """Run search queries across all configured databases. False if the search failed."""
+    return _claimed(config, "SEARCH", run, lambda r: _search(config, r))
+
+
+def _search(config: Config, run: ClaimedRun) -> bool:
     print(f"[SEARCH] Searching {len(config.sources)} source(s) with {len(config.queries)} query(ies)...")
     print(f"  Date range: {config.date_start} to {config.date_end}")
 
-    results = run_all_searches(config)
+    # Transparency: config warnings (e.g. OpenAlex without a key), then how
+    # each source handles the query and the configured filters (server-side
+    # vs applied locally vs ignored).
+    for w in config.readiness()["warnings"] + pipeline.pre_search_warnings(config):
+        print(f"  [!] {w}")
 
-    # Merge all papers
-    all_papers: list[Paper] = []
-    source_counts: dict[str, int] = {}
+    run.step("search", "Searching databases...")
+    outcome = pipeline.search_step(config, should_cancel=run.should_cancel)
+    source_counts = outcome["sources"]
+    if outcome["status"] == "cancelled":
+        print("\n[SEARCH] Stopped (a Stop was requested from the web app or the MCP server). "
+              "Nothing was saved; the previous results were kept.")
+        run.finish("cancelled", "Pipeline cancelled during search; the previous results were kept")
+        return False
+    if outcome["status"] == "failed":
+        for w in outcome["warnings"]:
+            print(f"  [!] {w}")
+        print(f"\n[SEARCH] Failed. {outcome['error']}")
+        run.finish("failed", f"Error in step 'search': {outcome['error']}", outcome["error"])
+        return False
 
-    for key, papers in results.items():
-        source_name = key.split("_")[0]
-        source_counts[source_name] = source_counts.get(source_name, 0) + len(papers)
-        all_papers.extend(papers)
-
-    # Save
-    save_papers(all_papers, config.search_dir / "all_records.json")
-
-    # Update state
-    state = load_state(config.state_file)
-    state["search"] = {**source_counts, "total": len(all_papers)}
-    save_state(state, config.state_file)
-
-    print(f"\n[SEARCH] Done! Total: {len(all_papers)} papers from {len(source_counts)} source(s)")
+    print(f"\n[SEARCH] Done! Total: {outcome['total']} papers from {len(source_counts)} source(s)")
     for src, count in source_counts.items():
         print(f"  {src}: {count}")
+    for w in outcome["warnings"]:
+        print(f"  [!] {w}")
     print(f"  Saved to: {config.search_dir / 'all_records.json'}")
+    run.step_done("search", {"status": "ok", "total": outcome["total"], "sources": source_counts},
+                  outcome["warnings"])
+    return True
 
 
-def cmd_dedup(config: Config) -> None:
-    """Remove duplicate papers."""
-    papers = load_papers(config.search_dir / "all_records.json")
-    if not papers:
+def cmd_dedup(config: Config, run: ClaimedRun | None = None) -> bool:
+    """Remove duplicate papers. False if there was nothing to deduplicate."""
+    return _claimed(config, "DEDUP", run, lambda r: _dedup(config, r))
+
+
+def _dedup(config: Config, run: ClaimedRun) -> bool:
+    print(f"[DEDUP] Deduplicating {config.search_dir / 'all_records.json'}...")
+    run.step("dedup", "Removing duplicates...")
+    try:
+        result = pipeline.dedup_step(config)
+    except StepError as exc:
         print("[DEDUP] No papers found. Run 'search' first.")
-        return
+        run.finish("failed", f"Error in step 'dedup': {exc}", str(exc))
+        return False
 
-    print(f"[DEDUP] Deduplicating {len(papers)} papers...")
-    unique, log = deduplicate(papers, config.doi_match, config.fuzzy_threshold)
-
-    save_papers(unique, config.dedup_dir / "deduplicated.json")
-    save_dedup_log(log, config.dedup_dir / "duplicates_log.csv")
-
-    state = load_state(config.state_file)
-    state["dedup"] = {"duplicates_removed": len(papers) - len(unique), "remaining": len(unique)}
-    save_state(state, config.state_file)
-
-    print(f"[DEDUP] Done! Removed {len(papers) - len(unique)} duplicates, {len(unique)} unique papers remaining")
+    print(f"[DEDUP] Done! Removed {result['duplicates_removed']} duplicates, "
+          f"{result['remaining']} unique papers remaining")
     print(f"  Saved to: {config.dedup_dir / 'deduplicated.json'}")
-    if log:
+    if result["duplicates_removed"]:
         print(f"  Duplicate log: {config.dedup_dir / 'duplicates_log.csv'}")
+    run.step_done("dedup", result)
+    return True
 
 
-def cmd_screen_rules(config: Config) -> None:
-    """Apply keyword-based screening rules."""
-    papers = load_papers(config.dedup_dir / "deduplicated.json")
-    if not papers:
+def cmd_screen_rules(config: Config, run: ClaimedRun | None = None) -> bool:
+    """Apply keyword-based screening rules (manual and AI decisions are kept).
+
+    On its own it refuses while a pipeline runs on the project; inside the
+    CLI's own run (``run``) it is that run's screening step.
+    """
+    print(f"[SCREEN] Screening with keyword rules (min_include_hits = {config.min_include_hits})...")
+    if run is not None:
+        run.step("screen", "Keyword screening...")
+    try:
+        result = rescreen(config, persist_threshold=False, check_running=run is None)
+    except StepError as exc:
         print("[SCREEN] No papers found. Run 'dedup' first.")
-        return
-
-    print(f"[SCREEN] Screening {len(papers)} papers with keyword rules...")
-    papers = screen_by_rules(papers, config.include_keywords, config.exclude_keywords, config.min_include_hits)
-
-    included = get_by_decision(papers, "include")
-    excluded = get_by_decision(papers, "exclude")
-    maybe = get_by_decision(papers, "maybe")
-
-    save_papers(papers, config.screen_dir / "screen_results.json")
-    save_papers(included, config.screen_dir / "included.json")
-    save_papers(excluded, config.screen_dir / "excluded.json")
-    save_papers(maybe, config.screen_dir / "maybe.json")
-
-    state = load_state(config.state_file)
-    state["screen"] = {
-        "total_screened": len(papers),
-        "included": len(included),
-        "excluded": len(excluded),
-        "maybe": len(maybe),
-    }
-    save_state(state, config.state_file)
+        if run is not None:
+            run.finish("failed", f"Error in step 'screen': {exc}", str(exc))
+        return False
+    except (RunActiveError, ValueError) as exc:
+        print(f"[SCREEN] {exc}")
+        if run is not None:
+            run.finish("failed", f"Error in step 'screen': {exc}", str(exc))
+        return False
 
     print(f"[SCREEN] Done!")
-    print(f"  Included: {len(included)}")
-    print(f"  Excluded: {len(excluded)}")
-    print(f"  Maybe (needs review): {len(maybe)}")
+    print(f"  Included: {result['included']}")
+    print(f"  Excluded: {result['excluded']}")
+    if result["excluded_no_required_keyword"]:
+        print(f"    (of which {result['excluded_no_required_keyword']} by required-keyword rule)")
+    print(f"  Maybe (needs review): {result['maybe']}")
+    if result["kept_manual"] or result["kept_ai"]:
+        print(f"  Kept {result['kept_manual']} manual and {result['kept_ai']} AI decision(s)")
+    if result["eligibility_set_aside"]:
+        print(f"  {result['eligibility_set_aside']} eligibility decision(s) set aside: their papers "
+              f"are no longer included (kept on file, restored if they are included again)")
+    if run is not None:
+        run.step_done("screen", result)
+    return True
 
 
 def cmd_report(config: Config) -> None:
@@ -112,11 +149,14 @@ def cmd_report(config: Config) -> None:
         return
 
     print("[REPORT] Generating PRISMA flow diagram...")
-    generate_markdown_diagram(state, config.export_dir / "prisma_flow.md")
-    generate_png_diagram(state, config.export_dir / "prisma_flow.png")
+    flow = project_stats(config, state)["flow"]
+    generate_markdown_diagram(flow, config.export_dir / "prisma_flow.md")
+    generate_png_diagram(flow, config.export_dir / "prisma_flow.png")
 
     print(f"  Markdown: {config.export_dir / 'prisma_flow.md'}")
     print(f"  PNG: {config.export_dir / 'prisma_flow.png'}")
+    for note in flow["notes"]:
+        print(f"  [!] {note}")
 
 
 def cmd_export(config: Config) -> None:
@@ -171,10 +211,8 @@ def cmd_download(config: Config) -> None:
     print(f"  Saved to: {pdf_dir}")
 
     # Save download log
-    import json
     log_path = pdf_dir / "_download_log.json"
-    with open(log_path, "w", encoding="utf-8") as f:
-        json.dump(stats["results"], f, indent=2, ensure_ascii=False)
+    atomic_write_json(log_path, stats["results"], indent=2, ensure_ascii=False)
     print(f"  Log: {log_path}")
 
 
@@ -200,27 +238,55 @@ def cmd_status(config: Config) -> None:
         d = state["dedup"]
         print(f"  DEDUP: {d.get('duplicates_removed', 0)} duplicates removed, {d.get('remaining', 0)} unique")
 
-    if "screen" in state:
-        sc = state["screen"]
+    computed = project_stats(config, state)
+    if computed["screen"]:
+        sc = computed["screen"]
         print(f"  SCREEN: {sc.get('included', 0)} included, {sc.get('excluded', 0)} excluded, {sc.get('maybe', 0)} maybe")
+        if sc.get("excluded_no_required_keyword"):
+            print(f"    (of the excluded, {sc['excluded_no_required_keyword']} by required-keyword rule)")
 
-    if "eligibility" in state:
-        el = state["eligibility"]
+    if computed["eligibility"]:
+        el = computed["eligibility"]
         print(f"  ELIGIBILITY: {el.get('included', 0)} included, {el.get('excluded', 0)} excluded, {el.get('remaining', 0)} remaining")
+
+    flow = computed["flow"]
+    removed = flow["removed_before_screening"]
+    print()
+    print("  PRISMA 2020 flow:")
+    print(f"    Identified: {flow['identified']['total']}")
+    print(f"    Removed before screening: {removed['duplicates']} duplicates, "
+          f"{removed['automation_ineligible']} by automation tools")
+    if flow["awaiting_screening"]:
+        print(f"    Not yet screened: {flow['awaiting_screening']} (no screening decision recorded)")
+    screened = f"    Screened: {flow['screened']} ({flow['screening_excluded']} excluded"
+    if flow.get("included_by_automation"):
+        screened += f"; {flow['included_by_automation']} included by the keyword rules, no reviewer"
+    print(screened + ")")
+    print(f"    Sought for retrieval: {flow['sought_for_retrieval']}")
+    print(f"    Assessed for eligibility: {flow['assessed_for_eligibility']} "
+          f"({flow['eligibility_excluded']} excluded, {flow['awaiting_eligibility']} awaiting)")
+    print(f"    Included: {flow['included']}")
 
 
 def cmd_run_all(config: Config) -> None:
     """Run the full pipeline."""
     print("=" * 60)
-    print(f"PRISMA Review Tool — Full Pipeline")
+    print(f"PRISMA Review Tool - Full Pipeline")
     print(f"Project: {config.project_name}")
     print("=" * 60)
 
-    cmd_search(config)
-    print()
-    cmd_dedup(config)
-    print()
-    cmd_screen_rules(config)
+    def steps(run: ClaimedRun) -> bool:
+        if not cmd_search(config, run):
+            print("Pipeline stopped: the search did not finish, nothing was changed.")
+            return False
+        print()
+        if not cmd_dedup(config, run):
+            return False
+        print()
+        return cmd_screen_rules(config, run)
+
+    if not _claimed(config, "PIPELINE", None, steps):
+        return
     print()
     cmd_report(config)
     print()
@@ -231,23 +297,62 @@ def cmd_run_all(config: Config) -> None:
     cmd_status(config)
 
 
-def main():
+def resolve_cli_config(arg: str | None) -> Path:
+    """The config the CLI uses: --config, else the review the web app and MCP server use.
+
+    Without --config: PRISMA_CONFIG, then a config.yaml in the current folder
+    when that folder is not the workspace and PRISMA_WORKSPACE is not set
+    (running the CLI from a review folder of its own), then the active
+    project, then the root config.yaml (only when no project exists).
+    Raises workspace.WorkspaceError.
+    """
+    if arg:
+        return Path(arg)
+    if workspace.pinned_config_path() is None and not os.environ.get(workspace.ENV_WORKSPACE, "").strip():
+        here = Path.cwd() / "config.yaml"
+        if here.is_file() and os.path.normcase(str(Path.cwd().resolve()))                 != os.path.normcase(str(workspace.workspace_root())):
+            return here.resolve()
+    return workspace.resolve_config_path()
+
+
+def _describe_choice(arg: str | None, path: Path) -> str:
+    if arg:
+        return "--config"
+    try:
+        res = workspace.resolve()
+    except workspace.WorkspaceError:
+        return "config.yaml in the current folder"
+    if os.path.normcase(str(res.config_path)) != os.path.normcase(str(path)):
+        return "config.yaml in the current folder"
+    return {"env": workspace.ENV_CONFIG, "marker": f"active project '{res.project}'",
+            "root": "root config.yaml, no project"}[res.source]
+
+
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         prog="prisma-review",
-        description="PRISMA Review Tool — Automated systematic literature review",
+        description="PRISMA Review Tool - Automated systematic literature review",
     )
     parser.add_argument("command", choices=["search", "dedup", "screen-rules", "report", "export", "download", "status", "run-all"],
                         help="Command to run")
-    parser.add_argument("--config", default="config.yaml", help="Path to config.yaml (default: config.yaml)")
+    parser.add_argument("--config", default=None,
+                        help="Path to a config.yaml (default: the review the web app and the MCP "
+                             "server use: PRISMA_CONFIG, else the active project, else config.yaml)")
     parser.add_argument("--force", action="store_true", help="Re-run step even if output exists")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     try:
-        config = Config.load(args.config)
-    except FileNotFoundError as e:
+        path = resolve_cli_config(args.config)
+        config = Config.load(path)
+    except (FileNotFoundError, workspace.WorkspaceError, ValueError) as e:
         print(f"Error: {e}")
         sys.exit(1)
+    print(f"Config: {path} ({_describe_choice(args.config, path)})")
+    if not args.config:
+        notice = workspace.root_config_notice()
+        if notice:
+            print(f"  [!] {notice}")
 
     commands = {
         "search": cmd_search,

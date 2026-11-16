@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-11-16
+
+This release merges the community fork by **walterdemacedorodrigues** and **agoshigagoroba** (including PR #3) and fixes what an in-depth review of the fork and of 1.5.1 found.
+
+### Read this before upgrading
+
+- **1.5.1 silently stopped at 50 OpenAlex records per query.** OpenAlex now answers HTTP 401 to cursor paging without an API key, and 1.5.1 swallowed the error. 1.6.0 pages without a key up to OpenAlex's limit of 10,000 records per query and warns when a query is cut short. A free key (`api_keys.openalex_key`, or the Settings page) lifts the limit. If you searched OpenAlex with 1.5.1 and a query returned exactly 50 records, run the search again.
+- **Fresh installs of 1.5.1 crash** because `mcp>=1.0.0` now installs mcp 2.x, which removed `mcp.server.fastmcp`. 1.6.0 requires `mcp>=1.30,<2`.
+- **After `git pull`, run `python start.py` as usual.** It now reinstalls the Python packages when the requirements change and the web packages when the lockfile changes. If you start the MCP server or the API directly, run `pip install -r requirements.txt -r api/requirements.txt` first (new packages: `filelock`, `numpy`; `pyalex` is no longer used).
+- **PRISMA numbers change.** Records excluded by keyword rules are counted once, under "records removed before screening (automation tools)". "Records screened" now counts only records that have a decision; records nobody has screened yet are shown as "records not yet screened" instead of being counted as excluded. Regenerate your diagram and check the numbers before you report them. In the stats API, `screen.total_screened` is renamed `records_in_screening`.
+- **The MCP server follows the active project**, the same one the web app uses (`projects/.active_project`). In 1.5.1 it always read the root `config.yaml`. The root config is now used only when no project exists, and the tools say when they ignore it. To pin the MCP server to one review, set `PRISMA_CONFIG` in your MCP client config (see `docs/MCP_SETUP.md`).
+- **Search results differ from earlier runs of the same query.** OpenAlex now searches title, abstract and keywords (like Scopus `TITLE-ABS-KEY`) instead of full text. Semantic Scholar runs the Boolean query through its bulk search, whose results are not ranked by relevance. Crossref is opt-in: add it to `search.sources` to use it.
+- **The web app and API listen on 127.0.0.1 only** and the API accepts requests from the local web app only. `python start.py --host 0.0.0.0` opts in to network access (there is no login), together with `PRISMA_ALLOWED_HOSTS` and `PRISMA_CORS_ORIGINS` for the names others use.
+- Python 3.10 still works, but it reached end of life in October 2026 and keeps older `pillow` and `filelock` releases. Python 3.11 or newer is recommended.
+
+### Added
+
+From the community fork:
+- **Crossref** as a search source, in the backend, the Settings page and the docs (walterdemacedorodrigues).
+- **MCP tools to manage the review from an agent**: `get_review_config`, `set_review_config`, `list_projects`, `switch_project`, `create_project`, `rescreen` (21 tools in total), plus a guard that stops an agent from running a template config (agoshigagoroba).
+- **Live updates in the web app** over server-sent events (agoshigagoroba).
+- **Required-keywords screening gate**: a paper must mention at least one required term to be included (agoshigagoroba).
+- **Source-side search filters** (dates, document types, venues and ISSNs, open access) with a per-source filter plan, and a screening report panel (agoshigagoroba).
+- **Search provenance**: which queries and sources found each paper (agoshigagoroba).
+- **Column sorting and page size** on All Papers (agoshigagoroba).
+
+New in this release:
+- **`01_search/search_log.json`**, for PRISMA 2020 item 7: the exact request sent to each source for each query, the filters, counts, status and tool version. The report panel and its Markdown export use it.
+- **Per-query search status** (`ok`, `partial`, `failed`, `skipped`, `cancelled`) with bounded retries on rate limits and server errors. Problems show up as warnings in the web app, the CLI and the MCP progress instead of disappearing. A query cut short by `max_results_per_query` warns "kept N of M matches".
+- **OpenAlex API key** field in Settings.
+- **`PRISMA_CONFIG`** pins the MCP server, the CLI and the API to one config file; **`PRISMA_WORKSPACE`** points them at another folder. At startup the MCP server writes its version, project and config path to stderr, and every tool that changes something returns the project it changed.
+- API endpoints: `GET /api/events`, `/api/config/readiness`, `/api/mcp/setup`, `/api/reports/search-log`, `/api/reports/by-query`, `/api/reports/filter-plan`.
+- A test suite: 419 pytest tests and 58 web tests (`npm test` in `web/`).
+
+### Changed
+- MCP tool descriptions are shorter and no longer use examples from one research field. `set_review_config` validates every value before writing and accepts `queries` as a list.
+- Required keywords match whole words (plurals accepted), so a stem such as `optimi` no longer matches `optimize`. A paper with no abstract goes to "maybe".
+- Deduplication keeps the most complete record and the version of record over a preprint, fills empty fields from the duplicates, and keeps existing paper ids (moves are logged in `02_dedup/id_moves.json`), so screening decisions survive a re-run. It is about ten times faster.
+- Web: Next.js 16.4.4, `next.config.ts` restored, a lockfile that `npm ci` accepts.
+
+### Fixed
+- **Data safety.** `review_state.json` and the screening files are written atomically under a lock shared by the web app, the MCP server and the CLI. Before, the web app and the MCP server writing at the same time could corrupt the JSON.
+- Re-screening keeps manual and AI decisions and never deletes eligibility decisions.
+- A search where every request fails keeps the previous results instead of wiping the later stages.
+- A pipeline that crashed no longer stays "running" forever, and a run started from one place (web app, MCP or CLI) blocks conflicting runs, project switches and decisions from the others.
+- Settings no longer overwrite a change made elsewhere (by an agent or another tab): saving a stale form asks you to reload or overwrite.
+- Deleting the active project no longer activates another project behind your back.
+- The required-keyword counter in the report no longer drops to 0 after the first manual decision.
+- Dedup no longer keeps a Crossref record without an abstract over the same paper with one.
+- Venue and ISSN filters no longer drop correct records; unhyphenated ISSNs are normalised.
+- Wildcards in OpenAlex queries no longer fail with HTTP 400.
+- Opening six or more tabs no longer stalls the web app, and Ctrl+C no longer hangs while a tab is open.
+- The MCP settings page in the web app describes the stdio setup that actually exists.
+
+### Security
+- Project names are validated everywhere. On Windows, `%5C` in a project name let `DELETE /api/projects/...` delete, and project export zip, folders outside the projects directory. The MCP `switch_project` tool could be pointed at any `config.yaml` on disk.
+- A pipeline refuses an `output_dir` outside the project that it could wipe.
+- `GET /api/config` masks API keys, and the API rejects foreign `Host` headers (DNS rebinding) and foreign origins.
+- Project exports leave out API keys, the contact email and the machine's hostname.
+- Error messages never quote config lines or request URLs that could hold a key or an email. OpenAlex's 401 message, which told AI agents to send the user's email to an OpenAlex endpoint, is no longer passed on to the MCP progress.
+- Dependency floors raised past published advisories; Next.js moved from 16.2.6 to 16.4.4 (critical advisories, including remote code execution on Windows-hosted servers). One moderate advisory (GHSA-mfr8-8qww-v76h) remains for 16.4.4; it concerns `use cache`, which the app does not use, and 16.4.5 follows in a patch release.
+
+### Credits
+
+Thanks to **walterdemacedorodrigues** and **agoshigagoroba** for the fork this release is built on. Their commits are kept with their authorship in the history.
+
 ## [1.5.1] - 2026-04-06
 
 ### Added

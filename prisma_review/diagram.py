@@ -2,51 +2,51 @@
 
 from __future__ import annotations
 
-import json
+import textwrap
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+from matplotlib.figure import Figure
+
+from .storage import atomic_write_json, atomic_write_text, read_json
 
 
 def load_state(state_file: Path) -> dict:
     """Load review state from JSON file."""
-    if not state_file.exists():
-        return {}
-    with open(state_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+    state = read_json(state_file, default={}, recover_trailing_data=True)
+    return state if isinstance(state, dict) else {}
 
 
 def save_state(state: dict, state_file: Path) -> None:
-    """Save review state to JSON file."""
-    state_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(state_file, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    """Save review state to JSON file (atomically).
+
+    For a read-modify-write use ``storage.update_state``, which also holds the
+    project lock so concurrent writers do not drop each other's changes.
+    """
+    atomic_write_json(state_file, state, indent=2)
 
 
-def generate_markdown_diagram(state: dict, path: Path) -> None:
-    """Generate a markdown text PRISMA flow diagram."""
-    path.parent.mkdir(parents=True, exist_ok=True)
+def _as_flow(data: dict) -> dict:
+    """Accept a flow (``stats.compute_flow``) or, as before, a review state."""
+    if isinstance(data, dict) and "identified" in data and "screened" in data:
+        return data
+    from .stats import compute_flow
+    return compute_flow(data)
 
-    search = state.get("search", {})
-    dedup = state.get("dedup", {})
-    screen = state.get("screen", {})
 
-    total_found = search.get("total", 0)
-    sources = {k: v for k, v in search.items() if k != "total"}
-    dups_removed = dedup.get("duplicates_removed", 0)
-    after_dedup = dedup.get("remaining", 0)
-    included = screen.get("included", 0)
-    excluded = screen.get("excluded", 0)
-    maybe = screen.get("maybe", 0)
+def _eligibility_started(flow: dict) -> bool:
+    return bool(flow["eligibility_excluded"] or flow["included"])
 
-    elig = state.get("eligibility", {})
-    elig_input = elig.get("input_from_screening", 0)
-    elig_included = elig.get("included", 0)
-    elig_excluded = elig.get("excluded", 0)
-    elig_remaining = elig.get("remaining", 0)
 
-    source_lines = "\n".join(f"    {name}: n = {count}" for name, count in sources.items())
+def generate_markdown_diagram(flow: dict, path: Path) -> None:
+    """Generate a markdown text PRISMA flow diagram from ``stats.compute_flow``."""
+    flow = _as_flow(flow)
+    removed = flow["removed_before_screening"]
+    reasons = removed["automation_by_reason"]
+    by_method = flow.get("screening_excluded_by_method") or {}
+
+    source_lines = "\n".join(f"    {name}: n = {count}"
+                             for name, count in flow["identified"]["by_source"].items())
 
     md = f"""# PRISMA 2020 Flow Diagram
 
@@ -54,94 +54,98 @@ def generate_markdown_diagram(state: dict, path: Path) -> None:
 
 Records identified from databases and registers:
 {source_lines}
-    **Total records identified: n = {total_found}**
+    **Total records identified: n = {flow["identified"]["total"]}**
 
 Records removed before screening:
-    Duplicate records removed: n = {dups_removed}
-    Records marked as ineligible by automation tools (keyword rules): n = {excluded}
+    Duplicate records removed: n = {removed["duplicates"]}
+    Records marked as ineligible by automation tools: n = {removed["automation_ineligible"]}
+        Exclude keywords (keyword rules): n = {reasons["keyword_rules"]}
+        No required keyword (required-keyword gate): n = {reasons["required_keywords"]}
 
 ## Screening
 
-Records screened (title + abstract): n = {after_dedup}
-    Records assessed by keyword rules + AI review: n = {after_dedup}
-    Records excluded (keyword rules + AI-assisted): n = {excluded}
-    Records remaining for review: n = {maybe}
-    Records included after screening: n = {included}
+"""
+    if flow["awaiting_screening"]:
+        md += f"""Records not yet screened (no screening decision recorded): n = {flow["awaiting_screening"]}
+
+"""
+    md += f"""Records screened (title + abstract): n = {flow["screened"]}
+    Records excluded (AI-assisted and manual review): n = {flow["screening_excluded"]}
+        AI-assisted: n = {by_method.get("ai", 0)}
+        Manual: n = {by_method.get("manual", 0)}
+"""
+    if flow.get("included_by_automation"):
+        md += f"""    Included by the keyword rules without reviewer screening: n = {flow["included_by_automation"]}
 """
 
-    if elig:
-        md += f"""
+    md += f"""
 ## Eligibility
 
-Reports sought for retrieval: n = {elig_input}
-Reports assessed for eligibility (AI-assisted, stricter criteria): n = {elig_input}
-    Reports excluded: n = {elig_excluded}
-    Reports remaining to assess: n = {elig_remaining}
-
+Reports sought for retrieval: n = {flow["sought_for_retrieval"]}
+"""
+    if _eligibility_started(flow):
+        md += f"""Reports assessed for eligibility: n = {flow["assessed_for_eligibility"]}
+    Reports excluded: n = {flow["eligibility_excluded"]}
+"""
+        if flow["awaiting_eligibility"]:
+            md += f"""    Reports awaiting assessment: n = {flow["awaiting_eligibility"]}
+"""
+        md += f"""
 ## Included
 
-Studies included in review: n = {elig_included}
-Reports of included studies: n = {elig_included}
+Studies included in review: n = {flow["included"]}
+Reports of included studies: n = {flow["included"]}
 """
     else:
-        md += f"""
-## Eligibility
-
-Reports sought for retrieval: n = {included}
-Reports assessed for eligibility: Pending eligibility screening
+        md += """Reports assessed for eligibility: Pending eligibility screening
 
 ## Included
 
 Studies included in review: Pending eligibility screening
 """
 
-    md += f"""
+    if flow.get("notes"):
+        md += "\n### Notes\n\n" + "\n".join(f"- {note}" for note in flow["notes"]) + "\n"
+
+    md += """
 ---
 
 ### Automation Tools Used (PRISMA 2020 Item 8)
 
-- **Keyword screening**: Rule-based automation (prisma_tool screen module)
+- **Keyword screening**: Rule-based automation (prisma_tool screen module); its exclusions are reported as records removed before screening, and the records it includes (enough include keywords) go to retrieval without reviewer screening
 - **AI-assisted screening**: Claude via Model Context Protocol (MCP)
 - **Deduplication**: DOI matching + fuzzy title matching (prisma_tool dedup module)
 - All decisions logged with method (rule/ai/manual) and reason
 
-*Generated by [prisma_tool](https://github.com) — PRISMA 2020 compliant*
+*Generated by [prisma_tool](https://github.com/Black-Lights/prisma-review-tool), PRISMA 2020 compliant*
 """
 
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(md)
+    atomic_write_text(path, md)
 
 
-def generate_png_diagram(state: dict, path: Path) -> None:
-    """Generate a PRISMA 2020 flow diagram as PNG using matplotlib."""
+def generate_png_diagram(flow: dict, path: Path) -> None:
+    """Generate a PRISMA 2020 flow diagram as PNG (matplotlib) from ``stats.compute_flow``."""
+    flow = _as_flow(flow)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    search = state.get("search", {})
-    dedup = state.get("dedup", {})
-    screen = state.get("screen", {})
-
-    total = search.get("total", 0)
-    dups = dedup.get("duplicates_removed", 0)
-    after_dedup = dedup.get("remaining", 0)
-    included = screen.get("included", 0)
-    excluded = screen.get("excluded", 0)
-    maybe = screen.get("maybe", 0)
-
-    elig = state.get("eligibility", {})
-    has_eligibility = bool(elig)
-    elig_input = elig.get("input_from_screening", 0)
-    elig_included = elig.get("included", 0)
-    elig_excluded = elig.get("excluded", 0)
+    removed = flow["removed_before_screening"]
+    reasons = removed["automation_by_reason"]
+    by_method = flow.get("screening_excluded_by_method") or {}
+    has_eligibility = _eligibility_started(flow)
 
     # Source breakdown
-    sources = {k: v for k, v in search.items() if k != "total"}
-    source_text = "\n".join(f"{k}: {v}" for k, v in sources.items())
+    source_text = "\n".join(f"{k}: {v}" for k, v in flow["identified"]["by_source"].items())
 
-    fig, ax = plt.subplots(1, 1, figsize=(12, 13))
+    # A bare Figure needs no GUI backend, so this also works in the API's
+    # worker threads (pyplot would start Tk there and crash the process).
+    fig = Figure(figsize=(12, 13))
+    ax = fig.subplots(1, 1)
     ax.set_xlim(0, 10)
     ax.set_ylim(0, 13)
     ax.axis("off")
-    ax.set_title("PRISMA 2020 Flow Diagram", fontsize=16, fontweight="bold", pad=20)
+    in_progress = flow["awaiting_screening"] or flow["awaiting_eligibility"] or not has_eligibility
+    ax.set_title("PRISMA 2020 Flow Diagram" + (" (review in progress)" if in_progress else ""),
+                 fontsize=16, fontweight="bold", pad=20)
 
     def draw_box(x, y, w, h, text, color="#E8F4FD", border="#2196F3"):
         rect = mpatches.FancyBboxPatch(
@@ -157,13 +161,16 @@ def generate_png_diagram(state: dict, path: Path) -> None:
         ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
                      arrowprops=dict(arrowstyle="->", color="#666666", lw=1.5))
 
-    removal_text = f"Records removed before\nscreening:\nDuplicates (n = {dups})\nAutomation tool\nexclusions (n = {excluded})"
+    removal_text = (f"Records removed before\nscreening:\nDuplicates (n = {removed['duplicates']})\n"
+                    f"Marked ineligible by automation\ntools (n = {removed['automation_ineligible']}):\n"
+                    f"keyword rules {reasons['keyword_rules']}, "
+                    f"required keywords {reasons['required_keywords']}")
 
     # Always show 4 stages per PRISMA 2020 (Page et al., BMJ 2021)
     # IDENTIFICATION
     ax.text(0.3, 12.5, "IDENTIFICATION", fontsize=10, fontweight="bold", color="#1565C0")
     draw_box(0.5, 11.0, 3.5, 1.2,
-             f"Records identified from\ndatabases & registers\n(n = {total})\n{source_text}",
+             f"Records identified from\ndatabases & registers\n(n = {flow['identified']['total']})\n{source_text}",
              color="#E3F2FD", border="#1565C0")
     draw_box(5.5, 11.0, 3.5, 1.2,
              removal_text,
@@ -172,25 +179,38 @@ def generate_png_diagram(state: dict, path: Path) -> None:
 
     # SCREENING
     ax.text(0.3, 10.3, "SCREENING", fontsize=10, fontweight="bold", color="#F57F17")
-    draw_box(0.5, 8.5, 3.5, 1.2,
-             f"Records screened\n(title + abstract)\n(n = {after_dedup})",
-             color="#FFF8E1", border="#F57F17")
+    screened_text = f"Records screened\n(title + abstract)\n(n = {flow['screened']})"
+    if flow.get("included_by_automation"):
+        screened_text += (f"\nof which {flow['included_by_automation']} included by\n"
+                          f"keyword rules, no reviewer")
+    draw_box(0.5, 8.5, 3.5, 1.2, screened_text, color="#FFF8E1", border="#F57F17")
     draw_arrow(2.25, 11.0, 2.25, 9.7)
-    excluded_total = after_dedup - included
+    if flow["awaiting_screening"]:
+        draw_box(5.5, 9.95, 3.5, 0.7,
+                 f"Records not yet screened\n(no decision recorded)\n(n = {flow['awaiting_screening']})",
+                 color="#FFF3E0", border="#EF6C00")
+        draw_arrow(2.25, 10.3, 5.5, 10.3)
     draw_box(5.5, 8.5, 3.5, 1.2,
-             f"Records excluded**\n(n = {excluded_total})",
+             f"Records excluded\n(n = {flow['screening_excluded']})\n"
+             f"AI-assisted {by_method.get('ai', 0)}, manual {by_method.get('manual', 0)}",
              color="#FFEBEE", border="#C62828")
     draw_arrow(4.0, 9.1, 5.5, 9.1)
 
     # ELIGIBILITY
     ax.text(0.3, 7.8, "ELIGIBILITY", fontsize=10, fontweight="bold", color="#6A1B9A")
+    if has_eligibility:
+        assessed = f"(n = {flow['assessed_for_eligibility']})"
+    else:
+        assessed = "Pending"
     draw_box(0.5, 5.8, 3.5, 1.2,
-             f"Reports sought for retrieval\n(n = {included})\nReports assessed for\neligibility\n(n = {elig_input if has_eligibility else included})",
+             f"Reports sought for retrieval\n(n = {flow['sought_for_retrieval']})\nReports assessed for\neligibility\n{assessed}",
              color="#F3E5F5", border="#6A1B9A")
     draw_arrow(2.25, 8.5, 2.25, 7.0)
 
     if has_eligibility:
-        elig_excl_text = f"Reports excluded:\n(n = {elig_excluded})"
+        elig_excl_text = f"Reports excluded:\n(n = {flow['eligibility_excluded']})"
+        if flow["awaiting_eligibility"]:
+            elig_excl_text += f"\nAwaiting assessment\n(n = {flow['awaiting_eligibility']})"
     else:
         elig_excl_text = "Reports excluded:\nPending eligibility screening"
     draw_box(5.5, 5.8, 3.5, 1.2,
@@ -198,11 +218,12 @@ def generate_png_diagram(state: dict, path: Path) -> None:
              color="#FFEBEE", border="#C62828")
     draw_arrow(4.0, 6.4, 5.5, 6.4)
 
-    # INCLUDED — per PRISMA 2020, only papers that passed eligibility screening
-    # First-pass included are candidates, NOT final until eligibility is done
+    # INCLUDED: per PRISMA 2020, only papers that passed eligibility screening.
+    # First-pass included are candidates, NOT final until eligibility is done.
     ax.text(0.3, 5.1, "INCLUDED", fontsize=10, fontweight="bold", color="#2E7D32")
     if has_eligibility:
-        incl_text = f"Studies included\nin review\n(n = {elig_included})\nReports of included\nstudies\n(n = {elig_included})"
+        incl_text = (f"Studies included\nin review\n(n = {flow['included']})\n"
+                     f"Reports of included\nstudies\n(n = {flow['included']})")
     else:
         incl_text = "Studies included\nin review\nPending eligibility\nscreening"
     draw_box(0.5, 3.5, 3.5, 1.5,
@@ -210,6 +231,11 @@ def generate_png_diagram(state: dict, path: Path) -> None:
              color="#E8F5E9", border="#2E7D32")
     draw_arrow(2.25, 5.8, 2.25, 5.0)
 
-    plt.tight_layout()
-    plt.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")
-    plt.close()
+    # The notes (records not yet screened, pending eligibility, ...) belong
+    # with the numbers wherever the image is used.
+    if flow.get("notes"):
+        wrapped = "\n".join(textwrap.fill(f"Note: {note}", width=120) for note in flow["notes"])
+        ax.text(0.3, 3.2, wrapped, ha="left", va="top", fontsize=7, color="#424242")
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=150, bbox_inches="tight", facecolor="white")

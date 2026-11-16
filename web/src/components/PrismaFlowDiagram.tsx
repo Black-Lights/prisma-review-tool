@@ -4,18 +4,16 @@ import { useRef, useState } from "react";
 import { toPng } from "html-to-image";
 import { Download } from "lucide-react";
 import type { StatsResponse } from "@/lib/api";
+import { byMethod, getFlow } from "@/lib/flow";
+import { formatCount } from "@/lib/report";
 
 interface Props {
   stats: StatsResponse | undefined;
 }
 
-function n(val: number | undefined): string {
-  return val !== undefined && val !== null ? val.toLocaleString() : "–";
+function n(val: number | undefined | null): string {
+  return typeof val === "number" ? formatCount(val) : "–";
 }
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-/* intentionally empty — DownloadActions removed, download button inline */
 
 /* ── Tiny SVG arrow helpers ── */
 
@@ -39,6 +37,11 @@ function ArrowDown() {
   );
 }
 
+/**
+ * PRISMA 2020 flow diagram. Every number is taken from stats.flow, the counts
+ * the API computes once for the web UI, the PNG/Markdown diagram and the MCP
+ * report; nothing is added or subtracted here (PIPE#12).
+ */
 export default function PrismaFlowDiagram({ stats }: Props) {
   const diagramRef = useRef<HTMLDivElement>(null);
   const [downloading, setDownloading] = useState(false);
@@ -66,25 +69,18 @@ export default function PrismaFlowDiagram({ stats }: Props) {
     }
   };
 
-  const search = stats?.search ?? {};
-  const dedup = stats?.dedup ?? {};
-  const screen = stats?.screen ?? {};
-  const eligibility = stats?.eligibility ?? {};
-
-  const totalIdentified = (search as any).total ?? 0;
-  const duplicatesRemoved = (dedup as any).duplicates_removed ?? 0;
-  const excluded = (screen as any).excluded ?? 0;
-  const maybe = (screen as any).maybe ?? 0;
-  const screened = (screen as any).total_screened ?? (dedup as any).remaining ?? 0;
-  const screenIncluded = (screen as any).included ?? 0;
-  const eligInput = (eligibility as any).input_from_screening ?? screenIncluded;
-  const eligIncluded = (eligibility as any).included ?? 0;
-  const eligExcluded = (eligibility as any).excluded ?? 0;
-  const hasEligibility = eligInput > 0 && ((eligibility as any).screened ?? 0) > 0;
-  // Per PRISMA 2020: "Studies included" = ONLY papers that passed eligibility screening
-  // First-pass included are just candidates — they are NOT final until eligibility is done
-  const finalIncluded = hasEligibility ? eligIncluded : 0;
-  const sourceEntries = Object.entries(search).filter(([k]) => k !== "total");
+  const flow = getFlow(stats);
+  const removed = flow?.removed_before_screening;
+  const reasons = removed?.automation_by_reason;
+  const sourceEntries = Object.entries(flow?.identified.by_source ?? {});
+  const humanVsAi = byMethod(flow?.screening_excluded_by_method);
+  const hasSearch = !!stats && !stats.error && Object.keys(stats.search ?? {}).length > 0;
+  const muted = "italic text-gray-500";
+  // Like the PNG and Markdown diagrams: before any eligibility decision the
+  // assessed, excluded and included counts are pending, not zero.
+  const eligibilityStarted = !!flow && flow.eligibility_excluded + flow.included > 0;
+  const pending = (val: number | undefined) => (flow && !eligibilityStarted ? "Pending" : `n = ${n(val)}`);
+  const notYetScreened = flow ? flow.awaiting_screening : 0;
 
   /*
    * Layout uses a 3-column CSS grid per row:
@@ -119,28 +115,52 @@ export default function PrismaFlowDiagram({ stats }: Props) {
             <div className={`flex-1 ${grid}`} style={cols}>
               <div className={box}>
                 <b>Records identified from*:</b><br />
-                Databases (n = {n(totalIdentified)})
+                Databases (n = {n(flow?.identified.total)})
                 {sourceEntries.map(([src, cnt]) => (
-                  <div key={src} className="ml-3 text-[10px]">{src}: {n(cnt as number)}</div>
+                  <div key={src} className="ml-3 text-[10px]">{src}: {n(cnt)}</div>
                 ))}
               </div>
               <div className="flex justify-center"><ArrowRight /></div>
               <div className={box}>
                 <b><i>Records removed before screening:</i></b><br />
-                <span className="ml-2">Duplicate records removed (n = {n(duplicatesRemoved)})</span><br />
-                <span className="ml-2">Records marked as ineligible by automation tools (n = {n(excluded)})</span><br />
-                <span className="ml-2">Records removed for other reasons (n = 0)</span>
+                <span className="ml-2">Duplicate records removed (n = {n(removed?.duplicates)})</span><br />
+                <span className="ml-2">Records marked as ineligible by automation tools (n = {n(removed?.automation_ineligible)})</span>
+                {reasons && (
+                  <>
+                    <div className="ml-5 text-[10px]">exclude-keyword rules (n = {n(reasons.keyword_rules)})</div>
+                    <div className="ml-5 text-[10px]">required-keyword gate (n = {n(reasons.required_keywords)})</div>
+                  </>
+                )}
+                {!reasons && <br />}
+                <span className="ml-2">Records removed for other reasons <span className={muted}>(not tracked by this tool)</span></span>
               </div>
             </div>
           </div>
 
-          {/* ↓ (under left box only) */}
+          {/* ↓ (under left box only), and the records nobody has screened yet beside it */}
           <div className="flex gap-1.5">
             <div className="w-[22px] shrink-0" />
             <div className={`flex-1 ${grid}`} style={cols}>
               <ArrowDown />
-              <div />
-              <div />
+              {notYetScreened > 0 ? (
+                <>
+                  <div className="flex justify-center"><ArrowRight /></div>
+                  <div className={`${box} my-1`} style={{ borderColor: "#EF6C00", backgroundColor: "#FFF3E0" }}>
+                    <b>Records not yet screened</b><br />
+                    (n = {n(notYetScreened)})
+                    <div className={`text-[10px] ${muted}`}>
+                      {flow?.screening_started === false
+                        ? "Screening has not run yet"
+                        : "No screening decision recorded; neither screened nor excluded"}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div />
+                  <div />
+                </>
+              )}
             </div>
           </div>
 
@@ -154,12 +174,18 @@ export default function PrismaFlowDiagram({ stats }: Props) {
               <div className={grid} style={cols}>
                 <div className={box}>
                   <b>Records screened</b><br />
-                  (n = {n(screened)})
+                  (n = {n(flow?.screened)})
+                  {!!flow?.included_by_automation && (
+                    <div className="ml-3 text-[10px]">
+                      of which {n(flow.included_by_automation)} included by keyword rules, no reviewer
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
                   <b>Records excluded**</b><br />
-                  (n = {n(excluded + maybe)})
+                  (n = {n(flow?.screening_excluded)})
+                  {humanVsAi && <div className="ml-3 text-[10px]">{humanVsAi}</div>}
                 </div>
               </div>
 
@@ -174,12 +200,12 @@ export default function PrismaFlowDiagram({ stats }: Props) {
               <div className={grid} style={cols}>
                 <div className={box}>
                   <b>Reports sought for retrieval</b><br />
-                  (n = {n(screenIncluded)})
+                  (n = {n(flow?.sought_for_retrieval)})
                 </div>
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
                   <b>Reports not retrieved</b><br />
-                  (n = 0)
+                  <span className={muted}>(not tracked by this tool)</span>
                 </div>
               </div>
 
@@ -194,15 +220,16 @@ export default function PrismaFlowDiagram({ stats }: Props) {
               <div className={grid} style={cols}>
                 <div className={box}>
                   <b>Reports assessed for eligibility</b><br />
-                  (n = {n(hasEligibility ? eligInput : screenIncluded)})
+                  ({pending(flow?.assessed_for_eligibility)})
                 </div>
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
                   <b>Reports excluded:</b><br />
-                  {hasEligibility ? (
-                    <span className="ml-2">Stricter criteria (n = {n(eligExcluded)})</span>
-                  ) : (
-                    <span className="ml-2 italic text-gray-400">Pending eligibility screening</span>
+                  <span className="ml-2">Stricter criteria ({pending(flow?.eligibility_excluded)})</span>
+                  {!!flow?.awaiting_eligibility && (
+                    <div className={`text-[10px] ${muted}`}>
+                      Awaiting eligibility assessment (n = {n(flow.awaiting_eligibility)})
+                    </div>
                   )}
                 </div>
               </div>
@@ -227,13 +254,9 @@ export default function PrismaFlowDiagram({ stats }: Props) {
             <div className={`flex-1 ${grid}`} style={cols}>
               <div className={box}>
                 <b>Studies included in review</b><br />
-                {hasEligibility ? (
-                  <>(n = {n(finalIncluded)})<br />
-                  <b>Reports of included studies</b><br />
-                  (n = {n(finalIncluded)})</>
-                ) : (
-                  <span className="italic text-gray-400">Pending eligibility screening</span>
-                )}
+                ({pending(flow?.included)})<br />
+                <b>Reports of included studies</b><br />
+                ({pending(flow?.included)})
               </div>
               <div />
               <div />
@@ -243,6 +266,20 @@ export default function PrismaFlowDiagram({ stats }: Props) {
 
         {/* Footnotes */}
         <div className="px-4 pb-3 text-[9px] text-gray-400 leading-relaxed">
+          {flow && flow.notes.length > 0 && (
+            <div className="mb-1.5 text-gray-600">
+              {flow.notes.map((note, i) => (
+                <p key={i}>Note: {note}</p>
+              ))}
+            </div>
+          )}
+          {!flow && (
+            <p className="mb-1.5 text-gray-600">
+              {hasSearch
+                ? "This API version does not report PRISMA flow counts. Update the tool and reload."
+                : "No pipeline data yet. Run the pipeline to fill in the counts."}
+            </p>
+          )}
           <p>*Consider, if feasible, reporting the number of records identified from each database or register searched (rather than the total number across all databases/registers).</p>
           <p>**If automation tools were used, indicate how many records were excluded by a human and how many were excluded by automation tools.</p>
           <p className="mt-1">Source: Page MJ, et al. BMJ 2021;372:n71. doi: 10.1136/bmj.n71. Licensed under CC BY 4.0.</p>
@@ -251,8 +288,9 @@ export default function PrismaFlowDiagram({ stats }: Props) {
 
       {/* Download */}
       <button
+        type="button"
         onClick={handleDownloadPng}
-        disabled={downloading}
+        disabled={downloading || !flow}
         className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-dim text-primary border border-primary/20 hover:bg-primary/20 disabled:opacity-50 transition-colors cursor-pointer"
       >
         <Download size={16} />

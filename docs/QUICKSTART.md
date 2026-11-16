@@ -22,6 +22,9 @@ Open `config.yaml` and change:
 - **project.name**: Your review title
 - **search.queries**: Your search terms (use Boolean AND/OR)
 - **screening.rules**: Your include/exclude keywords
+- **api_keys.openalex_key**: A free OpenAlex API key (recommended: it raises OpenAlex's daily request budget 10 times; see [CONFIG_GUIDE.md](CONFIG_GUIDE.md#api-keys))
+
+This is the CLI-only path, with one review in the root `config.yaml`. The web app (`python start.py`) moves that review into `projects/<name>/` on its first start and makes it the active project; from then on the CLI, the web app and the MCP server all use `projects/<name>/config.yaml`, so edit that one (or use the Settings page).
 
 ## 3. Run
 
@@ -36,9 +39,9 @@ python -m prisma_review status
 ```
 
 Your outputs are in `prisma_output/04_export/`:
-- `included_papers.bib` — Import into Zotero or use in LaTeX
-- `included_papers.csv` — Open in Excel
-- `prisma_flow.png` — [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) flow diagram
+- `included_papers.bib`: Import into Zotero or use in LaTeX
+- `included_papers.csv`: Open in Excel
+- `prisma_flow.png`: [PRISMA 2020](https://www.prisma-statement.org/prisma-2020) flow diagram
 
 ## 5. (Optional) AI Screening
 

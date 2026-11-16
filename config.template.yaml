@@ -5,7 +5,7 @@
 #   cp config.template.yaml config.yaml
 #
 # STEP 1: Name your project
-# STEP 2: Add API keys (optional — arXiv, OpenAlex, Semantic Scholar are free)
+# STEP 2: Add API keys (an OpenAlex key is free and strongly recommended)
 # STEP 3: Define your search queries (use Boolean AND/OR operators)
 # STEP 4: Set your inclusion/exclusion keywords for screening
 # ============================================================
@@ -20,7 +20,12 @@ api_keys:
   # Requires institutional access (university VPN or IP range)
   # Usage must comply with Elsevier API Service Agreement (academic research only)
   scopus: ""
-  openalex_email: ""      # Your email for faster OpenAlex responses (free, recommended)
+  # OpenAlex: free key from https://openalex.org/settings/api (recommended).
+  # It raises the daily request budget 10 times and is needed to page past
+  # 10,000 results per query. Without it a large search can be cut short; the
+  # query is then reported as partial.
+  openalex_key: ""
+  openalex_email: ""      # Optional contact email sent to OpenAlex
 
 # --- Search Configuration ---
 search:
@@ -30,15 +35,30 @@ search:
 
   max_results_per_query: 500  # Max papers per query per source (safety cap)
 
-  # Which databases to search (comment out to disable)
-  # NOTE: OpenAlex is the most reliable. arXiv and Semantic Scholar have
-  # aggressive rate limits that cause slow searches and 0-result failures.
-  # Recommend starting with openalex only, add others if needed.
+  # Which databases to search (uncomment to enable)
+  # NOTE: OpenAlex is the most reliable. arXiv and Semantic Scholar rate-limit
+  # heavily: requests are retried, and a query that still stops early is
+  # reported as partial or failed in the pipeline warnings.
+  # Crossref ranks by relevance only (no Boolean logic), so a query returns
+  # many off-topic records. Start with openalex and add others if needed.
   sources:
-    - openalex            # Free, 250M+ papers, most reliable (recommended)
+    - openalex            # Free, 250M+ papers, most reliable (recommended; add openalex_key)
+    # - crossref          # Free, 150M+ records, relevance-ranked: expect off-topic results
     # - arxiv             # Free, but rate-limits aggressively (HTTP 429)
-    # - semantic_scholar  # Free, but rate-limits heavily (often returns 0)
+    # - semantic_scholar  # Free, Boolean bulk search, but rate-limits heavily
     # - scopus            # Needs API key, best metadata quality
+
+  # --- Source-side filters (optional; all empty/false = no filtering) ---
+  # Applied AT THE REQUEST when the source supports the facet natively
+  # (server-side). When a source has no such facet, the filter is applied
+  # locally after the fetch; when it cannot be evaluated at all, it is not
+  # applied. The pipeline `warnings` say which, per source. Leave a field
+  # empty to disable it.
+  filters:
+    document_types: []          # e.g. ["journal-article", "review", "conference-paper"]
+    require_abstract: false     # drop records with no abstract (needed for screening)
+    open_access: false          # true = only open-access records
+    venues: []                  # ISSNs ("1234-567X") or journal names to restrict to
 
   # Search queries — use Boolean operators: AND, OR
   # Wrap phrases in quotes: "machine learning"
@@ -74,7 +94,15 @@ screening:
     exclude_keywords:             # Papers matching ANY of these are auto-excluded
       - irrelevant topic 1
       - irrelevant topic 2
-    min_include_hits: 2           # How many include keywords must match
+    min_include_hits: 2           # How many include keywords must match (1-10)
+    # Optional gate: when set, a paper is auto-excluded unless its title or
+    # abstract contains at least one of these terms, as a whole word or
+    # phrase (case, hyphens and a plural "s" are ignored). A paper with no
+    # abstract is left as "maybe" instead. Leave commented out (or empty) to
+    # disable it.
+    # required_keywords:
+    #   - core term 1
+    #   - core term 2
 
 # --- Eligibility Screening (Second Pass) ---
 # When first-pass screening yields too many papers, use the MCP tools

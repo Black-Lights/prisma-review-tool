@@ -15,6 +15,13 @@ from typing import Optional
 import requests
 
 from .models import Paper
+from .search.http import USER_AGENT
+
+# Progress output must go to stderr: this module is imported by the stdio MCP
+# server, where stdout is the JSON-RPC channel and any stray byte corrupts it.
+import sys
+import functools
+print = functools.partial(print, file=sys.stderr)
 
 
 def _sanitize_filename(text: str, max_len: int = 80) -> str:
@@ -164,9 +171,7 @@ def _download_elsevier_pdf(doi: str, api_key: str, path: Path) -> bool:
 def _download_pdf(url: str, path: Path) -> bool:
     """Download a PDF from a URL."""
     try:
-        resp = requests.get(url, timeout=30, stream=True, headers={
-            "User-Agent": "prisma-review-tool/1.0 (https://github.com/Black-Lights/prisma-review-tool)"
-        })
+        resp = requests.get(url, timeout=30, stream=True, headers={"User-Agent": USER_AGENT})
         if resp.status_code == 200:
             content_type = resp.headers.get("content-type", "")
             # Verify it's actually a PDF
@@ -248,8 +253,12 @@ def download_papers(
                 continue
             time.sleep(delay)
 
-        # Strategy 1: arXiv (always free)
-        pdf_url = _get_arxiv_pdf_url(paper.doi, paper.url)
+        # Strategy 1: arXiv (always free). Dedup may have kept another source's
+        # record, so also try the arXiv id it remembered in source_ids.
+        pdf_url = (_get_arxiv_pdf_url(paper.doi, paper.url)
+                   or _get_arxiv_pdf_url(None, (paper.source_ids or {}).get("arxiv"))
+                   or next((u for d in paper.alt_dois or [] if (u := _get_arxiv_pdf_url(d, None))),
+                           None))
 
         # Strategy 2: Unpaywall (free OA finder)
         if not pdf_url and email:

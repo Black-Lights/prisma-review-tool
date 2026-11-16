@@ -1,11 +1,56 @@
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import type { PrismaFlow } from "./flow";
+import type { McpSetup } from "./mcpSetup";
+
+/** Base URL of the FastAPI backend. The only place the env var is read. */
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API = API_BASE;
+
+/**
+ * A non-2xx API response. `detail` is FastAPI's `detail` field: usually a
+ * string, or an object such as {error: "config_changed", message, ...}.
+ */
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+  constructor(status: number, detail: unknown) {
+    super(describeError(status, detail));
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function describeError(status: number, detail: unknown): string {
+  if (typeof detail === "string" && detail) return detail;
+  if (detail && typeof detail === "object") {
+    const message = (detail as { message?: unknown }).message;
+    if (typeof message === "string" && message) return message;
+  }
+  return `Request failed with HTTP ${status}`;
+}
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json", ...opts?.headers },
     ...opts,
+    headers: { "Content-Type": "application/json", ...opts?.headers },
   });
-  return res.json();
+  return parseResponse<T>(res);
+}
+
+/** The JSON body of a 2xx response; anything else throws an ApiError. */
+async function parseResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  let body: unknown = null;
+  try {
+    body = text ? JSON.parse(text) : null;
+  } catch {
+    body = text;
+  }
+  if (!res.ok) {
+    const detail = body && typeof body === "object" && "detail" in body ? (body as { detail: unknown }).detail : body;
+    throw new ApiError(res.status, detail);
+  }
+  return body as T;
 }
 
 // Stats
@@ -16,13 +61,13 @@ export const fetchPapersToScreen = (batchSize = 20, filter = "maybe") =>
   request<PaperListResponse>(`/api/papers/screen?batch_size=${batchSize}&filter_type=${filter}`);
 
 export const screenPaper = (id: string, decision: string, reason: string) =>
-  request<any>(`/api/papers/${id}/screen`, {
+  request<Record<string, unknown>>(`/api/papers/${encodeURIComponent(id)}/screen`, {
     method: "POST",
     body: JSON.stringify({ decision, reason }),
   });
 
 export const batchScreen = (decisions: { paper_id: string; decision: string; reason: string }[]) =>
-  request<any>("/api/papers/screen/batch", {
+  request<Record<string, unknown>>("/api/papers/screen/batch", {
     method: "POST",
     body: JSON.stringify(decisions),
   });
@@ -32,29 +77,70 @@ export const fetchEligibilityPapers = (batchSize = 20) =>
   request<EligibilityListResponse>(`/api/papers/eligibility?batch_size=${batchSize}`);
 
 export const eligibilityScreen = (id: string, decision: string, reason: string) =>
-  request<any>(`/api/papers/${id}/eligibility`, {
+  request<Record<string, unknown>>(`/api/papers/${encodeURIComponent(id)}/eligibility`, {
     method: "POST",
     body: JSON.stringify({ decision, reason }),
   });
 
 // Browse all papers (paginated)
-export const fetchAllPapers = (page = 1, perPage = 20, decision = "all", source = "all") =>
-  request<PaginatedPapersResponse>(`/api/papers?page=${page}&per_page=${perPage}&decision=${decision}&source=${source}`);
+
+// Columns the backend sorts by (api/routes/papers.py, _SORT_KEYS). A value
+// saved in the URL or ui_state.json outside this list made every request 422.
+export const SORT_KEYS = ["title", "authors", "year", "source", "decision"] as const;
+export type SortKey = (typeof SORT_KEYS)[number];
+
+export function normalizeSort(value: unknown): SortKey | "" {
+  return (SORT_KEYS as readonly unknown[]).includes(value) ? (value as SortKey) : "";
+}
+
+// Rows per page offered by All Papers (the backend accepts 1..1000).
+export const PER_PAGE_OPTIONS = [25, 50, 100, 250, 500, 1000] as const;
+
+/** The nearest offered page size at or above `value` (25 when unusable). */
+export function normalizePerPage(value: unknown): number {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return PER_PAGE_OPTIONS[0];
+  return PER_PAGE_OPTIONS.find((size) => size >= n) ?? PER_PAGE_OPTIONS[PER_PAGE_OPTIONS.length - 1];
+}
+
+export const fetchAllPapers = (
+  page = 1,
+  perPage = 20,
+  decision = "all",
+  source = "all",
+  sort = "",
+  order: "asc" | "desc" = "asc",
+) => {
+  const params = new URLSearchParams({
+    page: String(page),
+    per_page: String(perPage),
+    decision,
+    source,
+  });
+  const sortKey = normalizeSort(sort);
+  if (sortKey) {
+    params.set("sort", sortKey);
+    params.set("order", order === "desc" ? "desc" : "asc");
+  }
+  return request<PaginatedPapersResponse>(`/api/papers?${params}`);
+};
 
 // Re-screen with different threshold
 export const rescreenPapers = (minIncludeHits: number) =>
-  request<{ status: string; min_include_hits: number; included: number; excluded: number; maybe: number }>(
+  request<{ status: string; min_include_hits: number; included: number; excluded: number; maybe: number;
+            kept_manual?: number; kept_ai?: number; eligibility_set_aside?: number }>(
     `/api/papers/rescreen?min_include_hits=${minIncludeHits}`,
     { method: "POST" },
   );
 
 // Paper details & search
-export const fetchPaper = (id: string) => request<PaperDetail>(`/api/papers/${id}`);
+export const fetchPaper = (id: string) => request<PaperDetail>(`/api/papers/${encodeURIComponent(id)}`);
 export const searchPapers = (q: string) => request<SearchResponse>(`/api/papers/search?q=${encodeURIComponent(q)}`);
 
 // Pipeline — synchronous (legacy)
-export const fetchPipelineStatus = () => request<any>("/api/pipeline/status");
-export const runPipelineStep = (step: string) => request<any>(`/api/pipeline/${step}`, { method: "POST" });
+export const fetchPipelineStatus = () => request<Record<string, unknown>>("/api/pipeline/status");
+export const runPipelineStep = (step: string) =>
+  request<Record<string, unknown>>(`/api/pipeline/${encodeURIComponent(step)}`, { method: "POST" });
 
 // Pipeline — background session
 export const startPipeline = () =>
@@ -66,8 +152,20 @@ export const stopPipeline = () =>
   request<{ status: string }>("/api/pipeline/stop", { method: "POST" });
 
 // Reports
-export const generateReport = () => request<any>("/api/reports/generate", { method: "POST" });
-export const downloadPapers = () => request<any>("/api/papers/download", { method: "POST" });
+export const fetchReportByQuery = () => request<ReportByQueryResponse>("/api/reports/by-query");
+export const fetchFilterPlan = () => request<FilterPlanResponse>("/api/reports/filter-plan");
+
+/** The search as it ran (01_search/search_log.json), or null before any search completed. */
+export const fetchSearchLog = async (): Promise<SearchLog | null> => {
+  try {
+    return await request<SearchLog>("/api/reports/search-log");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+};
+export const generateReport = () => request<Record<string, unknown>>("/api/reports/generate", { method: "POST" });
+export const downloadPapers = () => request<Record<string, unknown>>("/api/papers/download", { method: "POST" });
 export const fetchDownloadLog = () => request<DownloadLogResponse>("/api/papers/downloads");
 
 export interface DownloadEntry {
@@ -109,14 +207,14 @@ export const duplicateProject = (name: string, newName: string) =>
   });
 export const exportProject = async (name: string) => {
   const res = await fetch(`${API}/api/projects/export/${encodeURIComponent(name)}`);
-  if (!res.ok) throw new Error("Export failed");
+  if (!res.ok) return parseResponse<never>(res);
   return res.blob();
 };
 export const importProject = async (file: File) => {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(`${API}/api/projects/import`, { method: "POST", body: form });
-  return res.json() as Promise<{ status: string; name: string }>;
+  return parseResponse<{ status: string; name: string }>(res);
 };
 
 // UI state (per-project filter persistence)
@@ -128,9 +226,17 @@ export const saveUiState = (state: Record<string, any>) =>
   });
 
 // Config
-export const fetchConfig = () => request<any>("/api/config");
-export const updateConfig = (data: any) =>
-  request<any>("/api/config", { method: "PUT", body: JSON.stringify(data) });
+// GET returns the raw config plus "_version" ("<mtime_ns>-<size>") with API
+// key values masked as "********". PUT takes the whole config: send back the
+// _version it was loaded with (409 detail.error "config_changed" when the file
+// changed since) and "********" for any key left unchanged.
+export const fetchConfig = () => request<ConfigData>("/api/config");
+export const updateConfig = (data: ConfigData) =>
+  request<{ status: string; _version: string | null }>("/api/config", { method: "PUT", body: JSON.stringify(data) });
+export const fetchConfigReadiness = () => request<ConfigReadiness>("/api/config/readiness");
+
+// MCP server setup (paths for this install and the tools the server registers)
+export const fetchMcpSetup = () => request<McpSetup>("/api/mcp/setup");
 
 // Types
 export interface StatsResponse {
@@ -139,6 +245,102 @@ export interface StatsResponse {
   dedup: Record<string, number>;
   screen: Record<string, number>;
   eligibility: Record<string, number>;
+  /** PRISMA 2020 flow counts; the diagram and the report render only these. */
+  flow?: PrismaFlow;
+  /** Set (with no other field) when the project has no pipeline state yet. */
+  error?: string;
+}
+
+export interface QueryDef {
+  name?: string;
+  terms?: string;
+  [key: string]: unknown;
+}
+
+export interface SearchFilters {
+  document_types?: string[];
+  require_abstract?: boolean;
+  open_access?: boolean;
+  venues?: string[];
+  [key: string]: unknown;
+}
+
+/** The config.yaml mapping as the API returns it. Unknown keys are kept on save. */
+export interface ConfigData {
+  _version?: string | null;
+  project?: { name?: string; [key: string]: unknown };
+  search?: {
+    sources?: string[];
+    date_range?: { start?: string; end?: string; [key: string]: unknown };
+    max_results_per_query?: number;
+    queries?: QueryDef[];
+    filters?: SearchFilters;
+    [key: string]: unknown;
+  };
+  screening?: {
+    rules?: {
+      include_keywords?: string[];
+      exclude_keywords?: string[];
+      required_keywords?: string[];
+      min_include_hits?: number;
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  api_keys?: { scopus?: string; openalex_key?: string; openalex_email?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+export interface ConfigReadiness {
+  ready: boolean;
+  problems: string[];
+  search_problems: string[];
+  screen_problems: string[];
+  warnings: string[];
+}
+
+export interface QueryReportRow {
+  name: string;
+  terms: string;
+  found_raw: number;
+  after_dedup: number;
+  included: number;
+  maybe: number;
+  excluded: number;
+}
+
+export interface ReportByQueryResponse {
+  /** Where the query names and terms come from: the search log of the last search, or the settings. */
+  queries_from?: "search_log" | "settings";
+  queries: QueryReportRow[];
+  total_after_dedup: number;
+  total_included: number;
+  untagged: { raw: number; screened: number };
+  error?: string;
+}
+
+export type FilterMode = "request" | "post" | "unsupported";
+
+/** 01_search/search_log.json: the search exactly as executed (PRISMA 2020 item 7). */
+export interface SearchLog {
+  tool_version?: string;
+  started_at?: string;
+  finished_at?: string;
+  date_range?: { start?: string; end?: string };
+  max_results_per_query?: number;
+  sources?: string[];
+  filters?: { document_types?: string[]; require_abstract?: boolean; open_access?: boolean; venues?: string[] };
+  queries?: { index: number; name: string; terms: string; terms_sha256?: string }[];
+  complete?: boolean;
+  truncated?: boolean;
+  searches?: Record<string, unknown>[];
+}
+
+export interface FilterPlanResponse {
+  sources: string[];
+  filters: { filter: string; by_source: Record<string, FilterMode> }[];
+  empty: boolean;
+  error?: string;
 }
 
 export interface PaperSummary {
@@ -215,7 +417,7 @@ export interface PipelineProgress {
   completed_steps: string[];
   warnings: string[];
   error: string | null;
-  result: Record<string, any> | null;
+  result: Record<string, unknown> | null;
 }
 
 export interface Project {
@@ -232,9 +434,12 @@ export interface Project {
 
 export interface ProjectListResponse {
   projects: Project[];
+  /** Why the active-project marker is unusable (stale or invalid name). */
+  active_error?: string;
 }
 
 export interface ActiveProjectResponse {
   active: string | null;
   display_name?: string;
+  error?: string;
 }

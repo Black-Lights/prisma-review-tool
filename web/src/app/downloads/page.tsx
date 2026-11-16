@@ -18,8 +18,6 @@ import {
 } from "lucide-react";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 type ViewFilter = "all" | "downloaded" | "no_oa" | "failed";
 
 const DOWNLOADS_DEFAULTS = { filter: "all" } as const;
