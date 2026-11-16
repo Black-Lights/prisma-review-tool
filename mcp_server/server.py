@@ -10,6 +10,7 @@ Diagnostics, including the startup line naming the review in use, go to stderr.
 from __future__ import annotations
 
 import functools
+import inspect
 import json
 import re
 import sys
@@ -105,7 +106,9 @@ def _tool(fn: Callable[..., str]) -> Callable[..., str]:
             traceback.print_exc(file=sys.stderr)
             return _error(f"{type(exc).__name__}: {exc}")
 
-    return mcp.tool()(wrapper)
+    # cleandoc: Python 3.13 strips docstring indentation at compile time, 3.10 to
+    # 3.12 do not, and the description is sent to the agent in every session.
+    return mcp.tool(description=inspect.cleandoc(fn.__doc__ or ""))(wrapper)
 
 
 def _get_config() -> Config:
