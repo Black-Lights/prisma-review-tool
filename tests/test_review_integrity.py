@@ -6,6 +6,7 @@ R-8 (CLI and sync endpoints claim the run), R-9 (export temp files), R-12 (faile
 
 from __future__ import annotations
 
+import copy
 import json
 
 import pytest
@@ -373,3 +374,105 @@ def test_decisions_are_refused_while_a_pipeline_runs(api_client, mcp_server, wor
     save_state(state, out / "review_state.json")
     assert api_client.post("/api/papers/p4/screen", json=decision).json()["status"] == "ok"
     assert j(mcp_server.eligibility_screen_paper("p1", "include", "fits"))["status"] == "ok"
+
+
+# --------------------------------------------------------------------------- R-8
+
+
+def test_cli_and_sync_endpoints_refuse_while_a_pipeline_runs(api_client, workspace, capsys):
+    from prisma_review import cli
+    from prisma_review.config import Config
+
+    config = Config.load(workspace.project_config("alpha"))
+    write_dataset(config.output_dir)
+    records = (config.search_dir / "all_records.json").read_bytes()
+    dedup = (config.dedup_dir / "deduplicated.json").read_bytes()
+    _live_run(config.state_file)
+
+    assert cli.cmd_search(config) is False
+    assert cli.cmd_dedup(config) is False
+    cli.cmd_run_all(config)
+    out = capsys.readouterr().out
+    assert out.count("A pipeline is running on this project") >= 3
+    assert "[SEARCH] Searching" not in out and "[DEDUP] Done" not in out
+    for path in ("/api/pipeline/search", "/api/pipeline/dedup", "/api/pipeline/run-all"):
+        assert api_client.post(path).status_code == 409, path
+    assert (config.search_dir / "all_records.json").read_bytes() == records
+    assert (config.dedup_dir / "deduplicated.json").read_bytes() == dedup
+
+
+def test_a_cli_search_is_a_run_the_other_front_ends_see_and_can_stop(
+        api_client, mcp_server, workspace, monkeypatch, capsys):
+    import threading
+    import time
+
+    from prisma_review import cli, pipeline
+    from prisma_review.config import Config
+    from prisma_review.search import runner
+
+    monkeypatch.setattr(pipeline, "HEARTBEAT_SECONDS", 0.05)
+    config = Config.load(workspace.project_config("alpha"))
+    write_dataset(config.output_dir)
+    records = (config.search_dir / "all_records.json").read_bytes()
+    started, release = threading.Event(), threading.Event()
+
+    def slow(source, terms, start, end, config, filters, status, should_cancel):
+        started.set()
+        while not should_cancel() and not release.is_set():
+            time.sleep(0.02)
+        if should_cancel():
+            status.status = "cancelled"
+        return []
+
+    monkeypatch.setattr(runner, "_run_backend", slow)
+    result = {}
+    thread = threading.Thread(target=lambda: result.setdefault("ok", cli.cmd_search(config)))
+    thread.start()
+    try:
+        assert started.wait(10)
+        block = pipeline.read_run(config.state_file)
+        assert block["status"] == "running" and block["owner"] == "cli"
+        assert block["current_step"] == "search"
+
+        # The web app and the MCP server see the run and refuse to start another.
+        assert api_client.get("/api/pipeline/progress").json()["status"] == "running"
+        assert api_client.post("/api/pipeline/start").status_code == 409
+        assert "running" in j(mcp_server.start_pipeline())["error"]
+        assert api_client.post("/api/papers/p4/screen",
+                               json={"decision": "include", "reason": ""}).status_code == 409
+
+        # A Stop from the web app reaches the CLI search.
+        assert api_client.post("/api/pipeline/stop").json()["status"] == "cancel_requested"
+        thread.join(10)
+        assert not thread.is_alive()
+    finally:
+        release.set()
+        thread.join(10)
+    assert result["ok"] is False
+    assert "Stopped" in capsys.readouterr().out
+    assert (config.search_dir / "all_records.json").read_bytes() == records
+    block = pipeline.read_run(config.state_file)
+    assert block["status"] == "cancelled" and pipeline.active_run(config.state_file) is None
+
+
+def test_cli_run_all_and_sync_endpoints_record_their_run(api_client, workspace, monkeypatch):
+    from prisma_review import cli, pipeline
+    from prisma_review.config import Config
+    from prisma_review.models import Paper
+
+    config = Config.load(workspace.project_config("alpha"))
+    write_dataset(config.output_dir)
+    papers = [Paper(id=f"n{i}", title=f"Crop yield prediction {i}", abstract="crop yield prediction",
+                    year=2023, source="openalex", doi=f"10.9/{i}") for i in range(3)]
+    monkeypatch.setattr(pipeline, "run_all_searches",
+                        lambda config, **_kw: {"openalex#0": copy.deepcopy(papers)})
+
+    cli.cmd_run_all(config)
+    block = pipeline.read_run(config.state_file)
+    assert block["status"] == "completed" and block["owner"] == "cli"
+    assert block["completed_steps"] == ["search", "dedup", "screen"]
+    assert pipeline.active_run(config.state_file) is None
+
+    assert api_client.post("/api/pipeline/dedup").json()["status"] == "ok"
+    block = pipeline.read_run(config.state_file)
+    assert (block["status"], block["owner"], block["completed_steps"]) == ("completed", "api", ["dedup"])

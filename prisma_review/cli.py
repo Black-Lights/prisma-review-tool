@@ -6,11 +6,12 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Callable
 
 from . import pipeline, workspace
 from .config import Config
 from .models import load_papers
-from .pipeline import RunActiveError, StepError
+from .pipeline import ClaimedRun, RunActiveError, StepError
 from .screen import rescreen
 from .stats import project_stats
 from .storage import atomic_write_json
@@ -19,8 +20,30 @@ from .download import download_papers
 from .diagram import generate_markdown_diagram, generate_png_diagram, load_state
 
 
-def cmd_search(config: Config) -> bool:
+def _claimed(config: Config, label: str, run: ClaimedRun | None,
+             body: Callable[[ClaimedRun], bool]) -> bool:
+    """Run ``body`` inside ``run``, or inside a run claimed for this command.
+
+    A command that changes the results records its run on the project like
+    the web app and the MCP server do, so neither starts a pipeline over it,
+    and it refuses to start while one of theirs is running.
+    """
+    if run is not None:
+        return body(run)
+    try:
+        with pipeline.claimed_run(config, "cli") as claimed:
+            return body(claimed)
+    except RunActiveError as exc:
+        print(f"[{label}] {exc} Nothing was changed; try again when it has finished.")
+        return False
+
+
+def cmd_search(config: Config, run: ClaimedRun | None = None) -> bool:
     """Run search queries across all configured databases. False if the search failed."""
+    return _claimed(config, "SEARCH", run, lambda r: _search(config, r))
+
+
+def _search(config: Config, run: ClaimedRun) -> bool:
     print(f"[SEARCH] Searching {len(config.sources)} source(s) with {len(config.queries)} query(ies)...")
     print(f"  Date range: {config.date_start} to {config.date_end}")
 
@@ -30,12 +53,19 @@ def cmd_search(config: Config) -> bool:
     for w in config.readiness()["warnings"] + pipeline.pre_search_warnings(config):
         print(f"  [!] {w}")
 
-    outcome = pipeline.search_step(config)
+    run.step("search", "Searching databases...")
+    outcome = pipeline.search_step(config, should_cancel=run.should_cancel)
     source_counts = outcome["sources"]
+    if outcome["status"] == "cancelled":
+        print("\n[SEARCH] Stopped (a Stop was requested from the web app or the MCP server). "
+              "Nothing was saved; the previous results were kept.")
+        run.finish("cancelled", "Pipeline cancelled during search; the previous results were kept")
+        return False
     if outcome["status"] == "failed":
         for w in outcome["warnings"]:
             print(f"  [!] {w}")
         print(f"\n[SEARCH] Failed. {outcome['error']}")
+        run.finish("failed", f"Error in step 'search': {outcome['error']}", outcome["error"])
         return False
 
     print(f"\n[SEARCH] Done! Total: {outcome['total']} papers from {len(source_counts)} source(s)")
@@ -44,36 +74,56 @@ def cmd_search(config: Config) -> bool:
     for w in outcome["warnings"]:
         print(f"  [!] {w}")
     print(f"  Saved to: {config.search_dir / 'all_records.json'}")
+    run.step_done("search", {"status": "ok", "total": outcome["total"], "sources": source_counts},
+                  outcome["warnings"])
     return True
 
 
-def cmd_dedup(config: Config) -> None:
-    """Remove duplicate papers."""
+def cmd_dedup(config: Config, run: ClaimedRun | None = None) -> bool:
+    """Remove duplicate papers. False if there was nothing to deduplicate."""
+    return _claimed(config, "DEDUP", run, lambda r: _dedup(config, r))
+
+
+def _dedup(config: Config, run: ClaimedRun) -> bool:
     print(f"[DEDUP] Deduplicating {config.search_dir / 'all_records.json'}...")
+    run.step("dedup", "Removing duplicates...")
     try:
         result = pipeline.dedup_step(config)
-    except StepError:
+    except StepError as exc:
         print("[DEDUP] No papers found. Run 'search' first.")
-        return
+        run.finish("failed", f"Error in step 'dedup': {exc}", str(exc))
+        return False
 
     print(f"[DEDUP] Done! Removed {result['duplicates_removed']} duplicates, "
           f"{result['remaining']} unique papers remaining")
     print(f"  Saved to: {config.dedup_dir / 'deduplicated.json'}")
     if result["duplicates_removed"]:
         print(f"  Duplicate log: {config.dedup_dir / 'duplicates_log.csv'}")
+    run.step_done("dedup", result)
+    return True
 
 
-def cmd_screen_rules(config: Config) -> None:
-    """Apply keyword-based screening rules (manual and AI decisions are kept)."""
+def cmd_screen_rules(config: Config, run: ClaimedRun | None = None) -> bool:
+    """Apply keyword-based screening rules (manual and AI decisions are kept).
+
+    On its own it refuses while a pipeline runs on the project; inside the
+    CLI's own run (``run``) it is that run's screening step.
+    """
     print(f"[SCREEN] Screening with keyword rules (min_include_hits = {config.min_include_hits})...")
+    if run is not None:
+        run.step("screen", "Keyword screening...")
     try:
-        result = rescreen(config, persist_threshold=False)
-    except StepError:
+        result = rescreen(config, persist_threshold=False, check_running=run is None)
+    except StepError as exc:
         print("[SCREEN] No papers found. Run 'dedup' first.")
-        return
+        if run is not None:
+            run.finish("failed", f"Error in step 'screen': {exc}", str(exc))
+        return False
     except (RunActiveError, ValueError) as exc:
         print(f"[SCREEN] {exc}")
-        return
+        if run is not None:
+            run.finish("failed", f"Error in step 'screen': {exc}", str(exc))
+        return False
 
     print(f"[SCREEN] Done!")
     print(f"  Included: {result['included']}")
@@ -86,6 +136,9 @@ def cmd_screen_rules(config: Config) -> None:
     if result["eligibility_set_aside"]:
         print(f"  {result['eligibility_set_aside']} eligibility decision(s) set aside: their papers "
               f"are no longer included (kept on file, restored if they are included again)")
+    if run is not None:
+        run.step_done("screen", result)
+    return True
 
 
 def cmd_report(config: Config) -> None:
@@ -218,13 +271,18 @@ def cmd_run_all(config: Config) -> None:
     print(f"Project: {config.project_name}")
     print("=" * 60)
 
-    if not cmd_search(config):
-        print("Pipeline stopped: the search failed, nothing was changed.")
+    def steps(run: ClaimedRun) -> bool:
+        if not cmd_search(config, run):
+            print("Pipeline stopped: the search did not finish, nothing was changed.")
+            return False
+        print()
+        if not cmd_dedup(config, run):
+            return False
+        print()
+        return cmd_screen_rules(config, run)
+
+    if not _claimed(config, "PIPELINE", None, steps):
         return
-    print()
-    cmd_dedup(config)
-    print()
-    cmd_screen_rules(config)
     print()
     cmd_report(config)
     print()

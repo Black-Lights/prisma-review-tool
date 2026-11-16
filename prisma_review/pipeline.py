@@ -8,6 +8,10 @@ run from one whose process died (a crash, Ctrl+C, ``--reload``, a closed Claude
 session), refuse to start a second run on the same project, and ask the owner
 to stop.
 
+The web app and the MCP server run pipelines through ``api.session``; the CLI
+and the synchronous API endpoints claim theirs with ``claimed_run``, so every
+front end records its run the same way and refuses to start over another one.
+
 Steps: ``search_step`` and ``dedup_step`` are the one implementation of those
 steps (screening is ``screen.rescreen``), so the counts are the same whichever
 front end runs them.
@@ -19,9 +23,12 @@ import os
 import shutil
 import socket
 import sys
+import threading
+import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterator
 
 from . import workspace
 from .config import KNOWN_SOURCES, Config
@@ -213,6 +220,119 @@ def request_cancel_on_disk(state_file: str | Path | None) -> bool:
 
     update_state(state_file, mark)
     return done["ok"]
+
+
+class ClaimedRun:
+    """A run this process recorded on disk with ``claimed_run``.
+
+    A heartbeat thread keeps the record fresh and picks up a Stop requested
+    from another process (``should_cancel``).
+    """
+
+    def __init__(self, state_file: Path, session_id: str) -> None:
+        self.state_file = state_file
+        self.session_id = session_id
+        self.results: dict[str, Any] = {}
+        self.warnings: list[str] = []
+        self.outcome: tuple[str, str, str | None] | None = None  # (status, message, error)
+        self._cancel = threading.Event()
+        self._stop = threading.Event()
+
+    def should_cancel(self) -> bool:
+        return self._cancel.is_set()
+
+    def _write(self, **fields: Any) -> bool:
+        """Update this run's block (only while it is still this run's). False if it is not."""
+        mine = {"ok": False}
+
+        def apply(state: dict) -> None:
+            block = state.get("pipeline")
+            if not isinstance(block, dict) or block.get("session_id") != self.session_id:
+                return
+            mine["ok"] = True
+            if block.get("cancel_requested"):
+                self._cancel.set()
+            block.update(fields)
+            block["heartbeat_at"] = now_iso()
+
+        update_state(self.state_file, apply)
+        return mine["ok"]
+
+    def step(self, name: str, message: str) -> None:
+        """Record that step ``name`` starts."""
+        self._write(current_step=name, progress_message=message)
+
+    def step_done(self, name: str, result: Any = None, warnings: list[str] | None = None) -> None:
+        """Record that step ``name`` finished with ``result`` (and its warnings)."""
+        self.results[name] = result
+        self.warnings.extend(warnings or [])
+        self._write(completed_steps=list(self.results), warnings=list(self.warnings))
+
+    def finish(self, status: str, message: str, error: str | None = None) -> None:
+        """Set how the run ends (default: completed when the block exits normally)."""
+        self.outcome = (status, message, error)
+
+    def _beat(self) -> None:
+        while not self._stop.wait(HEARTBEAT_SECONDS):
+            try:
+                if not self._write():
+                    self._cancel.set()  # the record was replaced: stop at the next check
+                    return
+            except Exception:  # noqa: BLE001 - try again at the next beat
+                pass
+
+
+@contextmanager
+def claimed_run(config: Config, owner: str) -> Iterator[ClaimedRun]:
+    """Record a run of this process on the project for the duration of the block.
+
+    Used by the CLI (``owner`` "cli") and the synchronous API endpoints
+    ("api") so that they, like the web and MCP pipelines, refuse to run over
+    a live run of another process (``RunActiveError``) and make every other
+    front end refuse to start one, change decisions or re-screen meanwhile.
+    The block ends the run as completed, or failed (cancelled on Ctrl+C) when
+    it raises; ``ClaimedRun.finish`` sets another outcome.
+    """
+    state_file = Path(config.state_file)
+    session_id = f"{owner}-{uuid.uuid4().hex[:8]}"
+    started = now_iso()
+    block = {
+        "session_id": session_id, "status": "running", "current_step": None,
+        "progress_message": f"Running from the {'command line' if owner == 'cli' else 'API'}...",
+        "started_at": started, "finished_at": None, "completed_steps": [], "warnings": [],
+        "error": None, "result": None, "cancel_requested": False, "owner": owner,
+        **owner_fields(),
+    }
+
+    def claim(state: dict) -> None:
+        current = state.get("pipeline")
+        if run_is_live(current):
+            raise RunActiveError(describe_run(current))
+        state["pipeline"] = block
+
+    update_state(state_file, claim)
+    run = ClaimedRun(state_file, session_id)
+    beat = threading.Thread(target=run._beat, daemon=True)
+    beat.start()
+    status, message, error = "completed", "Pipeline completed successfully", None
+    try:
+        yield run
+        if run.outcome is not None:
+            status, message, error = run.outcome
+    except BaseException as exc:
+        cancelled = isinstance(exc, KeyboardInterrupt)
+        status = "cancelled" if cancelled else "failed"
+        message = "Pipeline cancelled by user" if cancelled else f"Error: {exc}"
+        error = None if cancelled else f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        run._stop.set()
+        try:
+            run._write(status=status, progress_message=message, error=error,
+                       current_step=None, finished_at=now_iso(), result=run.results,
+                       warnings=list(run.warnings), cancel_requested=False)
+        except Exception:  # noqa: BLE001 - an unfinished record expires with its heartbeat
+            pass
 
 
 # ---------------------------------------------------------------------------
