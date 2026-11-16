@@ -95,7 +95,8 @@ def _tool(fn: Callable[..., str]) -> Callable[..., str]:
     def wrapper(*args: Any, **kwargs: Any) -> str:
         try:
             return fn(*args, **kwargs)
-        except (workspace.WorkspaceError, ConfigError, FileNotFoundError, StepError) as exc:
+        except (workspace.WorkspaceError, ConfigError, FileNotFoundError, StepError,
+                RunActiveError) as exc:
             return _error(str(exc))
         except Exception as exc:  # noqa: BLE001 - an agent gets JSON, the log gets the trace
             traceback.print_exc(file=sys.stderr)
@@ -390,8 +391,11 @@ def screen_paper(paper_id: str, decision: str, reason: str) -> str:
         return _error("Decision must be 'include' or 'exclude'")
 
     config = _get_config()
-    results, summary = apply_screen_decisions(
-        config, [{"paper_id": paper_id, "decision": decision, "reason": reason}], "ai")
+    try:
+        results, summary = apply_screen_decisions(
+            config, [{"paper_id": paper_id, "decision": decision, "reason": reason}], "ai")
+    except RunActiveError as exc:
+        return _error(str(exc), status="running", **_target(config))
     if results[0]["status"] != "ok":
         return _error(f"Paper '{paper_id}' not found in screen results.", **_target(config))
 
@@ -418,7 +422,10 @@ def batch_screen_papers(decisions: list[Decision] | str) -> str:
         return items
 
     config = _get_config()
-    results, summary = apply_screen_decisions(config, items, "ai")
+    try:
+        results, summary = apply_screen_decisions(config, items, "ai")
+    except RunActiveError as exc:
+        return _error(str(exc), status="running", **_target(config))
 
     return _dumps({
         **_target(config),
@@ -484,8 +491,11 @@ def eligibility_screen_paper(paper_id: str, decision: str, reason: str) -> str:
         return _error("Decision must be 'include' or 'exclude'")
 
     config = _get_config()
-    results, summary = apply_eligibility_decisions(
-        config, [{"paper_id": paper_id, "decision": decision, "reason": reason}], "ai")
+    try:
+        results, summary = apply_eligibility_decisions(
+            config, [{"paper_id": paper_id, "decision": decision, "reason": reason}], "ai")
+    except RunActiveError as exc:
+        return _error(str(exc), status="running", **_target(config))
     if results[0]["status"] != "ok":
         return _error(f"Paper '{paper_id}' not found in first-pass included papers.",
                       **_target(config))
@@ -513,7 +523,10 @@ def batch_eligibility_screen(decisions: list[Decision] | str) -> str:
         return items
 
     config = _get_config()
-    results, summary = apply_eligibility_decisions(config, items, "ai")
+    try:
+        results, summary = apply_eligibility_decisions(config, items, "ai")
+    except RunActiveError as exc:
+        return _error(str(exc), status="running", **_target(config))
 
     return _dumps({
         **_target(config),

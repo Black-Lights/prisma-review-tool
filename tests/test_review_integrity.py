@@ -319,3 +319,57 @@ def test_no_marker_with_projects_does_not_fall_back_to_the_root_config(bare_work
     # The API start-up migration does not activate the root review either.
     assert ws.migrate_root_to_projects() is None
     assert not bare_workspace.marker.exists()
+
+
+# --------------------------------------------------------------------------- R-7
+
+
+def _live_run(state_file) -> None:
+    """A run owned by a live process (this one) with a fresh heartbeat."""
+    import os
+    import socket
+    from datetime import datetime, timezone
+
+    from prisma_review.diagram import load_state, save_state
+
+    state = load_state(state_file)
+    now = datetime.now(timezone.utc).isoformat()
+    state["pipeline"] = {"status": "running", "session_id": "other", "current_step": "search",
+                         "owner_pid": os.getpid(), "owner_host": socket.gethostname(),
+                         "heartbeat_at": now, "started_at": now}
+    save_state(state, state_file)
+
+
+def test_decisions_are_refused_while_a_pipeline_runs(api_client, mcp_server, workspace):
+    out = workspace.output_dir("alpha")
+    write_dataset(out)
+    screen_before = (out / "03_screen" / "screen_results.json").read_bytes()
+    _live_run(out / "review_state.json")
+
+    decision = {"decision": "include", "reason": "fits"}
+    for path, body in (("/api/papers/p4/screen", decision),
+                       ("/api/papers/screen/batch", [{"paper_id": "p4", **decision}]),
+                       ("/api/papers/p1/eligibility", decision),
+                       ("/api/papers/eligibility/batch", [{"paper_id": "p1", **decision}])):
+        resp = api_client.post(path, json=body)
+        assert resp.status_code == 409, (path, resp.text)
+        assert "pipeline is running" in resp.json()["detail"]
+
+    for out_text in (mcp_server.screen_paper("p4", "include", "fits"),
+                     mcp_server.batch_screen_papers([{"paper_id": "p4", **decision}]),
+                     mcp_server.eligibility_screen_paper("p1", "include", "fits"),
+                     mcp_server.batch_eligibility_screen([{"paper_id": "p1", **decision}])):
+        body = j(out_text)
+        assert body["status"] == "running" and "try again" in body["error"]
+        assert body["project"] == "alpha"
+
+    assert (out / "03_screen" / "screen_results.json").read_bytes() == screen_before
+    assert not (out / "03b_eligibility" / "eligibility_results.json").exists()
+
+    # Once the run is over, decisions are saved again.
+    from prisma_review.diagram import load_state, save_state
+    state = load_state(out / "review_state.json")
+    state["pipeline"]["status"] = "completed"
+    save_state(state, out / "review_state.json")
+    assert api_client.post("/api/papers/p4/screen", json=decision).json()["status"] == "ok"
+    assert j(mcp_server.eligibility_screen_paper("p1", "include", "fits"))["status"] == "ok"

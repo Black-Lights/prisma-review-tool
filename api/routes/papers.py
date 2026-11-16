@@ -194,6 +194,14 @@ def rescreen_papers(
     return result
 
 
+def _record(apply, config: Config, items: list[dict]) -> tuple[list[dict], dict]:
+    """Save manual decisions with ``apply``; 409 while a pipeline runs on the project."""
+    try:
+        return apply(config, items, "manual")
+    except RunActiveError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 # ── First-pass screening ─────────────────────────────────────────────────────
 
 @router.get("/papers/screen")
@@ -232,8 +240,8 @@ def screen_paper(
     body: ScreenDecision,
     config: Config = Depends(get_config),
 ):
-    results, summary = apply_screen_decisions(
-        config, [{"paper_id": paper_id, "decision": body.decision, "reason": body.reason}], "manual")
+    results, summary = _record(apply_screen_decisions, config,
+                               [{"paper_id": paper_id, "decision": body.decision, "reason": body.reason}])
     if results[0]["status"] != "ok":
         return {"error": f"Paper '{paper_id}' not found."}
 
@@ -250,7 +258,7 @@ def batch_screen(
     items: list[BatchScreenItem],
     config: Config = Depends(get_config),
 ):
-    results, summary = apply_screen_decisions(config, [item.model_dump() for item in items], "manual")
+    results, summary = _record(apply_screen_decisions, config, [item.model_dump() for item in items])
     return {"processed": len(results), "remaining_maybe": summary["maybe"], "results": results}
 
 
@@ -299,8 +307,8 @@ def eligibility_screen(
     body: ScreenDecision,
     config: Config = Depends(get_config),
 ):
-    results, summary = apply_eligibility_decisions(
-        config, [{"paper_id": paper_id, "decision": body.decision, "reason": body.reason}], "manual")
+    results, summary = _record(apply_eligibility_decisions, config,
+                               [{"paper_id": paper_id, "decision": body.decision, "reason": body.reason}])
     if results[0]["status"] != "ok":
         return {"error": f"Paper '{paper_id}' not found."}
     return {"status": "ok", "paper_id": paper_id, "decision": body.decision,
@@ -312,8 +320,8 @@ def batch_eligibility(
     items: list[BatchScreenItem],
     config: Config = Depends(get_config),
 ):
-    results, summary = apply_eligibility_decisions(
-        config, [item.model_dump() for item in items], "manual")
+    results, summary = _record(apply_eligibility_decisions, config,
+                               [item.model_dump() for item in items])
     return {"processed": len(results), "remaining": summary["remaining"], "results": results}
 
 

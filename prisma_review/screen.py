@@ -357,16 +357,34 @@ def _decision_fields(item: dict) -> tuple[str, str, str]:
             str(item.get("reason") or ""))
 
 
+def _refuse_during_run(config: Config) -> None:
+    """Raise ``RunActiveError`` while a pipeline runs on the project.
+
+    A run replaces the screening and eligibility results when its search
+    finishes, so a decision saved meanwhile would be accepted and then lost.
+    Call it under the project lock.
+    """
+    from .pipeline import RunActiveError, active_run, describe_run
+
+    run = active_run(config.state_file)
+    if run is not None:
+        raise RunActiveError(describe_run(run) + " Decisions are not saved while it runs, "
+                             "because it replaces the screening results; try again when "
+                             "it has finished.")
+
+
 def apply_screen_decisions(config: Config, decisions: list[dict],
                            method: str) -> tuple[list[dict], dict]:
     """Record first-pass decisions ({paper_id, decision, reason}) made by ``method`` ("manual" or "ai").
 
     Reads, changes and writes screen_results.json under the project lock, so
     the web app and the MCP server never drop each other's decisions.
-    Returns one result per decision and the screen summary.
+    Returns one result per decision and the screen summary. Raises
+    ``RunActiveError`` (nothing saved) while a pipeline runs on the project.
     """
     results: list[dict] = []
     with project_lock(config.output_dir):
+        _refuse_during_run(config)
         papers = load_papers(config.screen_dir / "screen_results.json")
         by_id = {p.id: p for p in papers}
         changed = False
@@ -388,9 +406,13 @@ def apply_screen_decisions(config: Config, decisions: list[dict],
 
 def apply_eligibility_decisions(config: Config, decisions: list[dict],
                                 method: str) -> tuple[list[dict], dict]:
-    """Record eligibility (second pass) decisions about first-pass included papers."""
+    """Record eligibility (second pass) decisions about first-pass included papers.
+
+    Raises ``RunActiveError`` (nothing saved) while a pipeline runs on the project.
+    """
     results: list[dict] = []
     with project_lock(config.output_dir):
+        _refuse_during_run(config)
         first_pass = load_papers(config.screen_dir / "included.json")
         by_id = {p.id: p for p in first_pass}
         current = {p.id: p for p in load_papers(config.eligibility_dir / "eligibility_results.json")}
