@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Search, RefreshCw, SlidersHorizontal, ClipboardList } from "lucide-react";
 import PaperCard from "@/components/PaperCard";
 import GlassCard from "@/components/GlassCard";
+import Modal from "@/components/Modal";
 import ReportPanel from "@/components/ReportPanel";
 import {
   fetchPapersToScreen,
@@ -96,6 +97,7 @@ function ScreeningContent() {
 
   // Re-screen
   const [showRescreen, setShowRescreen] = useState(false);
+  const [confirmRescreen, setConfirmRescreen] = useState(false);
   // Report
   const [showReport, setShowReport] = useState(false);
 
@@ -230,7 +232,7 @@ function ScreeningContent() {
             )}
             <button
               type="button"
-              onClick={() => rescreenMutation.mutate(effectiveHits)}
+              onClick={() => setConfirmRescreen(true)}
               disabled={rescreenMutation.isPending}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold bg-primary/15 text-primary border border-primary/20 hover:bg-primary/25 disabled:opacity-50 transition-colors cursor-pointer ml-auto"
             >
@@ -249,13 +251,34 @@ function ScreeningContent() {
                 Re-screening complete (min hits = {rescreenMutation.data.min_include_hits})
               </p>
               <p className="text-xs text-text-secondary mt-1">
-                {rescreenMutation.data.included} included {"\u00B7"} {rescreenMutation.data.maybe} maybe {"\u00B7"} {rescreenMutation.data.excluded} excluded
-                {" \u2014 "} {rescreenMutation.data.included} papers moved to Eligibility page
+                {rescreenMutation.data.included} included {"\u00B7"} {rescreenMutation.data.maybe} maybe {"\u00B7"} {rescreenMutation.data.excluded} excluded.
+                {" "}{rescreenMutation.data.included} papers are on the Eligibility page.
               </p>
+              {(rescreenMutation.data.eligibility_set_aside ?? 0) > 0 && (
+                <p className="text-xs text-text-muted mt-1">
+                  {rescreenMutation.data.eligibility_set_aside} eligibility decision(s) set aside: their
+                  papers are no longer included. They are kept and count again if the papers are
+                  included again (e.g. after re-screening with the previous threshold).
+                </p>
+              )}
             </div>
           )}
         </GlassCard>
       )}
+
+      <Modal
+        open={confirmRescreen}
+        onClose={() => setConfirmRescreen(false)}
+        onConfirm={() => {
+          setConfirmRescreen(false);
+          rescreenMutation.mutate(effectiveHits);
+        }}
+        variant="info"
+        title={`Re-screen with min keyword hits = ${effectiveHits}?`}
+        description="The keyword rules run again on every deduplicated paper and the threshold is saved in the config. Manual and AI screening decisions are kept. Eligibility decisions about papers that leave the included set are set aside, not deleted: they count again if those papers are included again."
+        confirmLabel="Re-screen"
+        cancelLabel="Cancel"
+      />
 
       {/* Search bar */}
       <form onSubmit={handleSearch} className="flex gap-3">

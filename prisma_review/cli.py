@@ -75,9 +75,9 @@ def cmd_screen_rules(config: Config) -> None:
     print(f"  Maybe (needs review): {result['maybe']}")
     if result["kept_manual"] or result["kept_ai"]:
         print(f"  Kept {result['kept_manual']} manual and {result['kept_ai']} AI decision(s)")
-    if result["eligibility_dropped"]:
-        print(f"  Dropped {result['eligibility_dropped']} eligibility decision(s) about papers "
-              f"no longer included")
+    if result["eligibility_set_aside"]:
+        print(f"  {result['eligibility_set_aside']} eligibility decision(s) set aside: their papers "
+              f"are no longer included (kept on file, restored if they are included again)")
 
 
 def cmd_report(config: Config) -> None:

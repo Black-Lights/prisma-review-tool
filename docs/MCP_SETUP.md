@@ -137,7 +137,7 @@ Every tool returns JSON. Failures come back as `{"error": "..."}`, never as a cr
 | `screen_paper` | Save a decision for one paper |
 | `batch_screen_papers` | Save decisions for multiple papers at once (a list of `{"paper_id", "decision", "reason"}`) |
 | `search_in_papers` | Search within collected papers by keyword |
-| `rescreen` | Re-apply the keyword rules with a different `min_include_hits` (no new search). Keeps manual and AI decisions, drops eligibility decisions about papers no longer included, and saves the threshold in the config |
+| `rescreen` | Re-apply the keyword rules with a different `min_include_hits` (no new search). Keeps manual and AI decisions and every eligibility decision (decisions about papers that leave the included set are set aside and come back if they return), and saves the threshold in the config |
 
 ### Second-Pass Eligibility Screening (stricter AI-assisted review)
 

@@ -436,7 +436,9 @@ def get_papers_for_eligibility(batch_size: int = 10) -> str:
 
     # Load existing eligibility results to skip already-screened papers
     elig_results = load_papers_cached(config.eligibility_dir / "eligibility_results.json")
-    screened_ids = {p.id for p in elig_results if p.eligibility_decision is not None}
+    included_ids = {p.id for p in papers}
+    screened_ids = {p.id for p in elig_results
+                    if p.eligibility_decision is not None and p.id in included_ids}
 
     unscreened = [p for p in papers if p.id not in screened_ids]
     batch = unscreened[:batch_size]
@@ -931,9 +933,10 @@ def create_project(name: str, switch: bool = True) -> str:
 def rescreen(min_include_hits: int) -> str:
     """Re-run keyword screening on the deduplicated papers with a new threshold.
 
-    Does not re-search or re-deduplicate. Keeps every manual and AI decision,
-    drops eligibility decisions about papers that are no longer included, and
-    saves the threshold in the config. Refused while a pipeline runs on the
+    Does not re-search or re-deduplicate. Keeps every manual and AI decision
+    and every eligibility decision (those about papers that leave the
+    included set are set aside and come back if they return), and saves the
+    threshold in the config. Refused while a pipeline runs on the
     project. Mirrors the web app's re-screen control.
 
     Args:

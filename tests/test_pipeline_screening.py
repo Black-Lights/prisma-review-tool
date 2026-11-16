@@ -91,7 +91,8 @@ def test_mcp_rescreen_reconciles_eligibility_and_persists_threshold(mcp_server, 
     assert (papers["p6"].screen_decision, papers["p6"].screen_method) == ("include", "ai")
 
     elig_dir = out / "03b_eligibility"
-    assert [p.id for p in load_papers(elig_dir / "eligibility_results.json")] == ["p6"]
+    # R-1: p1's decision is set aside (kept on file), not deleted; only p6 counts.
+    assert sorted(p.id for p in load_papers(elig_dir / "eligibility_results.json")) == ["p1", "p6"]
     assert load_papers(elig_dir / "eligible_included.json") == []
     assert [p.id for p in load_papers(elig_dir / "eligible_excluded.json")] == ["p6"]
     state = load_state(out / "review_state.json")

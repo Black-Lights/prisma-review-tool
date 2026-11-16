@@ -200,12 +200,29 @@ def eligibility_summary(first_pass: Iterable[Paper], results: Iterable[Paper]) -
 # ---------------------------------------------------------------------------
 
 
-def _save_eligibility_files(config: Config, results: list[Paper]) -> None:
+def _save_eligibility_files(config: Config, results: list[Paper],
+                            first_pass: list[Paper]) -> None:
+    """Write every eligibility decision, and the per-decision files for the included papers.
+
+    eligibility_results.json keeps the decisions about papers that are no
+    longer included at screening (a re-screen or a changed first-pass
+    decision): they are set aside, not deleted, and count again as soon as the
+    paper is included again. eligible_included.json and eligible_excluded.json
+    hold only papers that are currently included at screening.
+    """
+    ids = {p.id for p in first_pass}
+    current = [p for p in results if p.id in ids]
     save_papers(results, config.eligibility_dir / "eligibility_results.json")
-    save_papers([p for p in results if p.eligibility_decision == "include"],
+    save_papers([p for p in current if p.eligibility_decision == "include"],
                 config.eligibility_dir / "eligible_included.json")
-    save_papers([p for p in results if p.eligibility_decision == "exclude"],
+    save_papers([p for p in current if p.eligibility_decision == "exclude"],
                 config.eligibility_dir / "eligible_excluded.json")
+
+
+def set_aside_count(first_pass: Iterable[Paper], results: Iterable[Paper]) -> int:
+    """Eligibility decisions kept on file about papers not included at screening now."""
+    ids = {p.id for p in first_pass}
+    return sum(1 for p in results if p.id not in ids and p.eligibility_decision in DECISIONS)
 
 
 def _set_eligibility_block(state: dict, summary: dict | None) -> None:
@@ -216,20 +233,18 @@ def _set_eligibility_block(state: dict, summary: dict | None) -> None:
 
 
 def _reconcile_eligibility(config: Config, first_pass: list[Paper]) -> tuple[dict | None, int]:
-    """Drop eligibility decisions about papers no longer included at screening.
+    """Match the eligibility files to the papers included at screening now.
 
-    Returns the eligibility summary (None if no eligibility pass exists) and
-    how many decisions were dropped.
+    Never deletes a decision (see ``_save_eligibility_files``). Returns the
+    eligibility summary (None if no eligibility pass exists) and how many
+    decisions are set aside because their paper is not included now.
     """
     path = config.eligibility_dir / "eligibility_results.json"
     if not path.exists():
         return None, 0
     results = load_papers(path)
-    ids = {p.id for p in first_pass}
-    kept = [p for p in results if p.id in ids]
-    if len(kept) != len(results):
-        _save_eligibility_files(config, kept)
-    return eligibility_summary(first_pass, kept), len(results) - len(kept)
+    _save_eligibility_files(config, results, first_pass)
+    return eligibility_summary(first_pass, results), set_aside_count(first_pass, results)
 
 
 def _write_screen_results(config: Config, papers: list[Paper],
@@ -272,11 +287,13 @@ def write_screen_results(config: Config, papers: list[Paper], *,
 
 def write_eligibility_results(config: Config, results: list[Paper],
                               first_pass: list[Paper]) -> dict:
-    """Write the eligibility files and the ``eligibility`` block; returns its summary."""
+    """Write the eligibility files and the ``eligibility`` block; returns its summary.
+
+    ``results`` is every decision on file; decisions about papers outside
+    ``first_pass`` are kept but not counted.
+    """
     with project_lock(config.output_dir):
-        ids = {p.id for p in first_pass}
-        results = [p for p in results if p.id in ids]
-        _save_eligibility_files(config, results)
+        _save_eligibility_files(config, results, first_pass)
         summary = eligibility_summary(first_pass, results)
         update_state(config.state_file, lambda state: _set_eligibility_block(state, summary))
     return summary
@@ -384,8 +401,9 @@ def rescreen(config: Config, min_include_hits: int | None = None, *,
              check_running: bool = True, persist_threshold: bool = True) -> dict:
     """Re-run the keyword rules on the deduplicated papers (no new search or dedup).
 
-    Keeps every manual and AI decision, drops eligibility decisions about
-    papers that are no longer included, records the threshold used in the
+    Keeps every manual and AI decision and every eligibility decision (those
+    about papers no longer included are set aside until they are included
+    again, ``eligibility_set_aside``), records the threshold used in the
     state and (``persist_threshold``) in config.yaml. Raises ``RunActiveError``
     while a pipeline runs on the project (``check_running``), ``StepError``
     when there is nothing to screen and ``ValueError`` for a bad threshold.
@@ -440,6 +458,6 @@ def rescreen(config: Config, min_include_hits: int | None = None, *,
         "excluded_no_required_keyword": summary["excluded_no_required_keyword"],
         "kept_manual": kept["manual"],
         "kept_ai": kept["ai"],
-        "eligibility_dropped": dropped,
+        "eligibility_set_aside": dropped,
         "threshold_saved": threshold_saved,
     }

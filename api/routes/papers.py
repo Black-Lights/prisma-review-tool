@@ -179,8 +179,8 @@ def rescreen_papers(
     """Re-run keyword screening on existing deduplicated papers with a new threshold.
 
     Does NOT re-search or re-deduplicate: only re-applies screening rules.
-    Keeps manual and AI decisions, drops eligibility decisions about papers
-    no longer included, and saves the threshold in config.yaml (the response
+    Keeps manual and AI decisions and every eligibility decision (set aside
+    while its paper is not included), and saves the threshold in config.yaml (the response
     has the new ``config_version``). 409 while a pipeline runs on the project.
     """
     try:
@@ -269,7 +269,9 @@ def get_papers_for_eligibility(
 ):
     papers = load_papers_cached(config.screen_dir / "included.json")
     elig_results = load_papers_cached(config.eligibility_dir / "eligibility_results.json")
-    screened_ids = {p.id for p in elig_results if p.eligibility_decision is not None}
+    included_ids = {p.id for p in papers}
+    screened_ids = {p.id for p in elig_results
+                    if p.eligibility_decision is not None and p.id in included_ids}
 
     unscreened = [p for p in papers if p.id not in screened_ids]
     batch = unscreened[:batch_size]
