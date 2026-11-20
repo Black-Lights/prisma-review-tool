@@ -228,3 +228,19 @@ def test_screen_summary_names_the_records_in_the_screening_file(mcp_server, work
     assert stats["screen"]["records_in_screening"] == 6
     assert "total_screened" not in stats["screen"]
     assert stats["flow"]["screened"] == 2 and stats["flow"]["awaiting_screening"] == 3
+
+
+def test_eligibility_numbers_say_full_texts_were_not_read(api_client, mcp_server, workspace):
+    """PRISMA 2020 reads "reports assessed for eligibility" as full reports read; this
+    tool's eligibility pass sees only the title and abstract, and says so."""
+    import asyncio
+
+    write_dataset(workspace.output_dir("alpha"))
+    assert not any("full texts" in n for n in api_client.get("/api/stats").json()["flow"]["notes"])
+
+    j(mcp_server.batch_eligibility_screen([{"paper_id": "p1", "decision": "include", "reason": "fits"}]))
+    notes = api_client.get("/api/stats").json()["flow"]["notes"]
+    assert any("does not read full texts" in n for n in notes)
+
+    tools = {t.name: t for t in asyncio.run(mcp_server.mcp.list_tools())}
+    assert "not the full text" in tools["get_papers_for_eligibility"].description

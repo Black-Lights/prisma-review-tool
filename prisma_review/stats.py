@@ -126,6 +126,15 @@ def _screen_from_state(state: dict) -> tuple[dict | None, list[str]]:
     return {"records_in_screening": total or sum(rebuilt.values()), "breakdown": rebuilt}, [note]
 
 
+# PRISMA 2020 counts "reports assessed for eligibility" as full reports that were
+# read. The eligibility pass here sees only the title, abstract and metadata, so
+# every diagram that shows its numbers carries this note.
+ELIGIBILITY_SOURCE_NOTE = (
+    "Eligibility was assessed on the title, abstract and metadata of each report; this tool "
+    "does not read full texts. Say so in the methods, or read the included reports in full "
+    "before reporting these numbers as a full-text assessment.")
+
+
 def compute_flow(state: dict, screen: dict | None = None,
                  eligibility: dict | None = None, *, capped: list[dict] | None = None) -> dict:
     """The PRISMA 2020 flow numbers.
@@ -223,6 +232,8 @@ def compute_flow(state: dict, screen: dict | None = None,
                      f"the number of included studies is pending.")
     elif awaiting_eligibility:
         notes.append(f"{awaiting_eligibility} reports are still awaiting the eligibility assessment.")
+    if eligibility_excluded or included:
+        notes.append(ELIGIBILITY_SOURCE_NOTE)
 
     return {
         "identified": {"total": identified, "by_source": by_source,

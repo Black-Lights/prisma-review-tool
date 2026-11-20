@@ -445,6 +445,9 @@ def batch_screen_papers(decisions: list[Decision] | str) -> str:
 def get_papers_for_eligibility(batch_size: int = 10) -> str:
     """Get a batch of first-pass included papers that need eligibility screening (second pass).
 
+    Each paper comes with its title, abstract and metadata only, not the full text:
+    decide on those, and do not say a decision was based on reading the paper.
+
     Args:
         batch_size: Number of papers to return (default 10)
     """

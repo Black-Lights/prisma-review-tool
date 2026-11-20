@@ -73,6 +73,11 @@ function EligibilityContent() {
         Second pass &mdash; apply stricter criteria to first-pass included
         papers
       </p>
+      <p className="text-text-muted text-xs">
+        Decisions here are made on the title and abstract; the full text is not
+        read. The PRISMA diagram notes this, so report it in your methods or
+        read the included papers in full.
+      </p>
 
       {mutation.error && (
         <div role="alert" className="glass p-3 border-l-4 border-l-accent-red text-sm text-accent-red">

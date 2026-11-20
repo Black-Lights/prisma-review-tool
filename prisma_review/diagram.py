@@ -84,7 +84,7 @@ Records removed before screening:
 Reports sought for retrieval: n = {flow["sought_for_retrieval"]}
 """
     if _eligibility_started(flow):
-        md += f"""Reports assessed for eligibility: n = {flow["assessed_for_eligibility"]}
+        md += f"""Reports assessed for eligibility (title and abstract only): n = {flow["assessed_for_eligibility"]}
     Reports excluded: n = {flow["eligibility_excluded"]}
 """
         if flow["awaiting_eligibility"]:
@@ -199,7 +199,7 @@ def generate_png_diagram(flow: dict, path: Path) -> None:
     # ELIGIBILITY
     ax.text(0.3, 7.8, "ELIGIBILITY", fontsize=10, fontweight="bold", color="#6A1B9A")
     if has_eligibility:
-        assessed = f"(n = {flow['assessed_for_eligibility']})"
+        assessed = f"(n = {flow['assessed_for_eligibility']}, title and abstract only)"
     else:
         assessed = "Pending"
     draw_box(0.5, 5.8, 3.5, 1.2,

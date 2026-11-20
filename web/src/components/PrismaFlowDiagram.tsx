@@ -220,7 +220,8 @@ export default function PrismaFlowDiagram({ stats }: Props) {
               <div className={grid} style={cols}>
                 <div className={box}>
                   <b>Reports assessed for eligibility</b><br />
-                  ({pending(flow?.assessed_for_eligibility)})
+                  ({pending(flow?.assessed_for_eligibility)})<br />
+                  <span className={muted}>(title and abstract only, full texts not read)</span>
                 </div>
                 <div className="flex justify-center"><ArrowRight /></div>
                 <div className={box}>
