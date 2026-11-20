@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-11-20
+
+### Changed
+
+- **The PRISMA diagrams now say that eligibility was judged on titles and abstracts.** PRISMA 2020 counts "reports assessed for eligibility" as full reports that were read, but the eligibility pass works on the title, abstract and metadata, and this tool does not read full texts. The box is now marked "title and abstract only" in the web diagram, the PNG and the Markdown export, and a note under the diagram (also in the API stats, the CLI report and the MCP tools) says to report it that way in the methods or to read the included papers in full first. The Eligibility page and the description of the `get_papers_for_eligibility` MCP tool say the same, so an AI agent does not claim to have read the papers.
+
 ## [1.6.1] - 2026-11-17
 
 ### Fixed
