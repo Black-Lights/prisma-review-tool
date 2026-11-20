@@ -137,6 +137,7 @@ export function flowFunnelRows(flow: PrismaFlow): FunnelRow[] {
     {
       key: "assessed_for_eligibility",
       label: "Reports assessed for eligibility",
+      detail: "title and abstract only, full texts not read",
       count: flow.assessed_for_eligibility,
       level: 0,
     },

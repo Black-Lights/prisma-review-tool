@@ -58,7 +58,7 @@ When the pipeline is running, cards show `--` until their step completes. Stats 
 An interactive flow diagram matching the official PRISMA 2020 template (Page et al., BMJ 2021;372:n71). It includes:
 
 - **Identification phase**: Records identified from databases, records removed before screening (duplicates + automation exclusions)
-- **Screening phase**: Records not yet screened (no decision recorded yet, shown on their own), records screened, records excluded, reports sought for retrieval, reports assessed for eligibility ("Pending" until the first eligibility decision), reports excluded with reasons. "Reports not retrieved" and "Records removed for other reasons" are marked as not tracked by the tool
+- **Screening phase**: Records not yet screened (no decision recorded yet, shown on their own), records screened, records excluded, reports sought for retrieval, reports assessed for eligibility ("Pending" until the first eligibility decision, marked "title and abstract only" because the tool does not read full texts), reports excluded with reasons. "Reports not retrieved" and "Records removed for other reasons" are marked as not tracked by the tool
 - **Included phase**: Final studies included in review
 
 The diagram **auto-updates** whenever you screen papers or run the pipeline. Click **"Download PNG"** to save a high-resolution image (3x pixel ratio) for your thesis or paper.

@@ -35,7 +35,7 @@ IDENTIFICATION: Records identified from databases (per source)
 SCREENING: Records screened (title + abstract)
     → Records excluded (with reasons)
 
-ELIGIBILITY: Reports assessed for eligibility (AI-assisted)
+ELIGIBILITY: Reports assessed for eligibility (title and abstract only)
     → Reports excluded (stricter criteria)
 
 INCLUDED: Studies included in review
@@ -44,6 +44,8 @@ INCLUDED: Studies included in review
 Generated as both PNG image and Markdown text, following the [PRISMA 2020 template](https://www.prisma-statement.org/prisma-2020-flow-diagram).
 
 "Records screened" counts only records that received a screening decision: AI or manual decisions, plus the papers the keyword rules included (enough include keywords), which go to retrieval without a reviewer and are named as such. Papers the keyword rules left as "maybe" and nobody has decided on yet are shown in their own "Records not yet screened" box, never as screened or excluded. While any are left, or eligibility is pending, the PNG title says "review in progress" and the notes under the diagram say what is still open. Screen them, or state in your methods how they were handled, before you publish the numbers.
+
+The eligibility pass also works on the title, abstract and metadata. It does not read full texts, although PRISMA 2020 counts "reports assessed for eligibility" as full reports that were read. The diagrams mark that box "title and abstract only" and add a note under the figure. Report it that way in your methods, or read the included papers in full before you call it a full-text assessment.
 
 ## PRISMA 2020 vs PRISMA 2009
 
